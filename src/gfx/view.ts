@@ -1,8 +1,8 @@
 // Renders the picture: one NES screen (256x240), shown at 4:3. Split screen gives each player a half
 // with the original 224px room view, cropped to 118 of its 128 rows to keep their kid in view, with
 // dialogue and status drawn over the scene. When everyone watches one scene (the intro, a world
-// cutscene, a player's cut-away), it fills the screen in the original arrangement: dialogue, the
-// whole 224x128 room, then each player's status line. Indexed NES colours.
+// cutscene, a player's cut-away), it fills the screen in the original arrangement: dialogue, then
+// the whole 224x128 room, with nothing below it. Indexed NES colours.
 
 import type { Actor } from '../engine/actor';
 import type { Engine, LocalObj } from '../engine/engine';
@@ -23,9 +23,8 @@ const BEAM_ABOVE_FEET = 24;
 export const HALF_H = 118;
 export const GAP = 4;
 const LINE = 8;
-/** Shared screen: dialogue lines, then the room, then one status line per player. */
+/** Shared screen: dialogue lines, then the room; the rest stays black, as on the NES. */
 const SHARED_SCENE_Y = 5 * LINE;
-const SHARED_STATUS_Y = SHARED_SCENE_Y + SCENE_H + 2 * LINE;
 
 export const WHITE = 0x30;
 export const GREY = 0x10;
@@ -59,7 +58,7 @@ export interface View {
   scene: Rect;
   scrollX: number;
   scrollY: number;
-  /** Top of this player's status line. */
+  /** Top of this player's status line (off the frame when shared: there is none). */
   statusY: number;
   actors: ActorBox[];
 }
@@ -174,11 +173,7 @@ export class ViewRenderer {
       const area = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
       const scene = this.drawScene(s, 1, dst, { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, 0);
       this.drawText(dst, s.dialogueFor(1), 3, LINE, -1);
-      return players.map((p, i) => {
-        const statusY = SHARED_STATUS_Y + i * (LINE + 4);
-        this.font.draw(dst, status(p).slice(0, 32), 0, statusY, YELLOW);
-        return { ...scene, shared: true, area, statusY };
-      });
+      return players.map(() => ({ ...scene, shared: true, area, statusY: FRAME_H }));
     }
     const views = players.map((p, i) => {
       const area = { x: 0, y: i * (HALF_H + GAP), w: FRAME_W, h: HALF_H };
@@ -215,7 +210,7 @@ export class ViewRenderer {
         fade(dst, out);
       } else if (away) this.font.draw(dst, MEANWHILE_TEXT, (FRAME_W - MEANWHILE_TEXT.length * 8) >> 1, (FRAME_H - LINE) >> 1, WHITE);
       const area = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
-      views = s.engine.players.map((_, i) => ({ shared: true, room: 0, area, scene: { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, scrollX: 0, scrollY: 0, statusY: SHARED_STATUS_Y + i * (LINE + 4), actors: [] }));
+      views = s.engine.players.map((_, i) => ({ shared: true, room: 0, area, scene: { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, scrollX: 0, scrollY: 0, statusY: FRAME_H, actors: [] }));
     }
     // Nobody can click or act until the scene is up.
     return views.map((v) => ({ ...v, shared: true }));

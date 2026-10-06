@@ -257,7 +257,7 @@ export class PlayerUI {
   status(): string {
     const e = this.e;
     const name = e.nameOf(this.kid());
-    if (!e.canAct(this.player)) return e.ctxs[0].cutscene || e.ctxs[this.player].cutscene || e.cutAway() ? `${name} - START SKIPS` : name;
+    if (!e.canAct(this.player)) return name;
     if (this.inHand && !this.options.length) return `${VERB_LABELS[this.inHand.verb]} ${e.nameOf(this.inHand.item)}... B drops`;
     if (this.hover) return this.hover;
     // '^' is the NES font's ellipsis: B has suggestions to step through.

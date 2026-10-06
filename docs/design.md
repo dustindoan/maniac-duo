@@ -8,8 +8,8 @@ Each half is the original 224-pixel room view between black borders, showing 118
 128 rows: it follows the kid's feet, so what's left out is almost always ceiling or sky. The
 dialogue and status lines are drawn over the scene. When everyone has to watch the same thing (the
 intro, a world cutscene, or a player's cutscene that cuts away to another room), the split goes
-away and that scene fills the screen in the original arrangement: dialogue, the whole room, then
-each player's status line. Each player controls exactly one kid. Dave is still in the game, but
+away and that scene fills the screen in the original arrangement: dialogue, then the whole room,
+with nothing below it. Each player controls exactly one kid. Dave is still in the game, but
 nobody controls him: he stays where the intro leaves him.
 
 Everything the game does comes from the ROM: rooms, objects, costumes, the font, and every script.

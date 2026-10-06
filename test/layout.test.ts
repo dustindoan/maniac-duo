@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Driver } from '../src/engine/driver';
 import { runRoute } from '../src/engine/route';
 import { type Command, Session } from '../src/engine/session';
-import { surface } from '../src/gfx/nes';
+import { NES_BLACK, surface } from '../src/gfx/nes';
 import { FRAME_H, FRAME_W, GAP, HALF_H, SCENE_H, type View, ViewRenderer } from '../src/gfx/view';
 import { VERB } from '../src/verbs/affordances';
 import { PlayerUI } from '../src/web/player-ui';
@@ -54,11 +54,11 @@ describe.skipIf(!haveRom)('layout', () => {
     expect(views.map((v) => v.shared)).toEqual([true, true]);
     expect(views[0].room).toBe(d.e.ctxs[0].room);
     expect(views[1].room).toBe(views[0].room);
-    // The original arrangement: the whole 224x128 room below the dialogue, status lines under it.
+    // The original arrangement: the whole 224x128 room below the dialogue, and nothing under it.
     expect(views[0].scene).toEqual({ x: 16, y: 40, w: 224, h: 128 });
     expect(views[0].scrollY).toBe(0);
-    expect(views[1].statusY).toBeGreaterThan(views[0].statusY);
-    expect(views[0].statusY).toBeGreaterThanOrEqual(40 + 128);
+    const { f } = frame(d);
+    expect([...f.px.subarray((40 + 128) * FRAME_W)].every((c) => c === NES_BLACK)).toBe(true);
   });
 
   test("a player's cut-away fills the screen for both, and the other player waits", () => {
