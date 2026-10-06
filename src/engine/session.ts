@@ -52,6 +52,8 @@ export interface SessionOptions {
 
 export class Session {
   engine: Engine;
+  /** Times the game has started over ("Press 'B' button play again" after a game over). */
+  restarts = 0;
   private selection: number[];
   private selectStage = 0;
   private selectWait = 0;
@@ -68,16 +70,36 @@ export class Session {
   private heldSound: number[][] = [];
 
   constructor(
-    rom: Rom,
+    private rom: Rom,
     public opts: SessionOptions,
   ) {
-    this.engine = new Engine(
-      rom,
-      opts.kids.map((k) => ({ kid: KIDS[k].actor })),
-      opts.seed ?? 1,
-    );
     this.selection = opts.kids.map((k) => KIDS[k].select);
-    this.engine.boot();
+    this.engine = this.newEngine();
+  }
+
+  private newEngine() {
+    // Each restart gets its own seed, so the codes change, the same way on every client.
+    const seed = ((this.opts.seed ?? 1) + this.restarts * 0x9e3779b9) >>> 0 || 1;
+    const e = new Engine(
+      this.rom,
+      this.opts.kids.map((k) => ({ kid: KIDS[k].actor })),
+      seed,
+    );
+    e.boot();
+    return e;
+  }
+
+  /** The game's restart: a new game from the title, with the same kids, at this tick. */
+  private restart() {
+    this.restarts++;
+    this.engine = this.newEngine();
+    this.selectStage = 0;
+    this.selectWait = 0;
+    this.ready = false;
+    this.meanwhile = 0;
+    this.card = { hold: 0, present: [] };
+    this.wasShared = true;
+    this.heldSound = [];
   }
 
   /** Advance one engine frame. */
@@ -91,6 +113,10 @@ export class Session {
       }
       this.drivePreGame();
       e.step();
+      if (e.events.some((ev) => ev.type === 'restart')) {
+        this.restart();
+        return;
+      }
       if (this.heldSound.length) e.sound.out.unshift(...this.heldSound.splice(0));
       // A scene everyone watches takes over the screen: hold the world for the card.
       const shared = this.ready && this.shared() !== null;

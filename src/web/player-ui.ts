@@ -87,6 +87,16 @@ export class PlayerUI {
     this.lastOption = cur ? `${cur.target.id}/${cur.verb}` : '';
   }
 
+  /** Forget choices and overlays: the game started over. */
+  reset() {
+    this.options = [];
+    this.optionIndex = -1;
+    this.lastOption = '';
+    this.inHand = null;
+    this.inventoryOpen = false;
+    this.menu = null;
+  }
+
   get focus(): Target | null {
     return this.options[this.optionIndex]?.target ?? null;
   }

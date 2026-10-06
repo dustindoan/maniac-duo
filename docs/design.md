@@ -34,7 +34,9 @@ your ROM (browser, IndexedDB)            relay server (no ROM)
 The server never runs the game. Each browser runs the same deterministic engine over the same
 command log, so the server only has to order commands. A player who joins later (or reloads)
 replays the log to catch up. `test/lockstep.test.ts` checks the replay reproduces the world exactly.
-Every 60 ticks each client shares a fingerprint of its world through the server, and says so if
+When the game restarts ("Press 'B' button play again" after a game over), the session builds a
+new game at that tick, with the same kids and a seed derived from the first, so every client
+starts over together. Every 60 ticks each client shares a fingerprint of its world through the server, and says so if
 its partner's differs. If the engine ever throws on a command or a frame, every client throws at
 the same point, so play carries on (`Lockstep.errors`) instead of leaving a log nobody can load.
 

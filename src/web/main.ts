@@ -88,6 +88,8 @@ class GameView {
   private ctx: CanvasRenderingContext2D;
   private image: ImageData;
   private keys = new Set<string>();
+  /** Restarts seen, to reset the interface when the game starts over. */
+  private restarts = 0;
 
   constructor(
     public kids: KidName[],
@@ -115,6 +117,10 @@ class GameView {
   /** Advance one tick: gather pads, let local UIs emit commands, run the engine frame. */
   advance(t: number, cmds: Command[]) {
     this.ls.advance(t, cmds);
+    if (this.ls.session.restarts !== this.restarts) {
+      this.restarts = this.ls.session.restarts;
+      for (const ui of this.uis) ui.reset();
+    }
     this.audio.play(this.ls.session.engine.sound.out);
     if (t % 60 === 0) {
       const h = stateHash(this.ls.session);

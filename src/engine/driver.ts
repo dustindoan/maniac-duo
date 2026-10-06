@@ -45,11 +45,11 @@ export class Driver {
 
   step(n = 1) {
     for (let i = 0; i < n; i++) {
+      const restarts = this.s.restarts;
       this.s.step();
       this.frames++;
       this.collect();
-      const ev = this.e.events.find((x) => x.type === 'restart');
-      if (ev && !this.won) throw new DriverError('the game restarted (all kids lost?)');
+      if (this.s.restarts > restarts && !this.won) throw new DriverError('the game restarted (all kids lost?)');
       this.e.events.length = 0;
     }
   }
