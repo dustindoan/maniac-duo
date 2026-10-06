@@ -1,6 +1,8 @@
 // Direct (D-pad) control: walk the kid with directions, and act on whatever is nearest.
 // The focus target is chosen locally on each client; only the resulting sentence goes on the wire.
 
+import { type Actor, adjustXYToBeInBox, walkRoute } from '../engine/actor';
+import { BOX_INVISIBLE, BOX_LOCKED, nextBox } from '../engine/boxes';
 import { type Engine, NUM_ACTORS } from '../engine/engine';
 import { VERB, VERB_LABELS, affordances, pairSentence } from './affordances';
 
@@ -123,9 +125,66 @@ export function dpadTarget(e: Engine, p: number, dx: number, dy: number): { x: n
   const lr = e.loadedRoom(a.room);
   if (!lr || (!dx && !dy)) return null;
   const w = lr.room.width * 8;
-  const x = dx < 0 ? 0 : dx > 0 ? w - 1 : a.x * 8;
-  const y = dy < 0 ? 0 : dy > 0 ? 127 : a.y * 2;
-  // Diagonals: aim a fixed distance out so both axes move together.
-  if (dx && dy) return { x: Math.max(0, Math.min(w - 1, a.x * 8 + dx * 64)), y: Math.max(0, Math.min(127, a.y * 2 + dy * 32)) };
-  return { x, y };
+  // Aim at the room's edge that way. Diagonals aim a fixed distance out so both axes move together.
+  const aim =
+    dx && dy
+      ? { x: Math.max(0, Math.min(w - 1, a.x * 8 + dx * 64)), y: Math.max(0, Math.min(127, a.y * 2 + dy * 32)) }
+      : { x: dx < 0 ? 0 : dx > 0 ? w - 1 : a.x * 8, y: dy < 0 ? 0 : dy > 0 ? 127 : a.y * 2 };
+  // The pathfinder may get there by a detour: from in front of the yard fence, "up" means round the end
+  // of the fence and back along behind it. Then walk straight ahead until something is in the way.
+  if (a.walkbox >= lr.room.boxes.length || !wanders(walkRoute(e, a, aim.x >> 3, aim.y >> 1), dx, dy)) return aim;
+  return straightAhead(e, a, aim);
+}
+
+/**
+ * Does a route (actor units) wander instead of heading the pressed way? Per axis, in pixels: travel
+ * against a pressed direction, or back and forth across it, is wasted. A route wanders when it gets
+ * nowhere or wastes more than it gains. Sliding along a wall, an L-shaped path or a slanted box wastes
+ * nothing.
+ */
+function wanders(route: { x: number; y: number }[], dx: number, dy: number): boolean {
+  let gain = 0;
+  let waste = 0;
+  let moved = false;
+  for (const [axis, d, px] of [['x', dx, 8], ['y', dy, 2]] as const) {
+    let total = 0;
+    let net = 0;
+    for (let i = 1; i < route.length; i++) {
+      const v = (route[i][axis] - route[i - 1][axis]) * px;
+      total += Math.abs(v);
+      net += v;
+    }
+    if (total) moved = true;
+    if (d) {
+      gain += net * d;
+      waste += (total - net * d) / 2;
+    } else waste += total - Math.abs(net);
+  }
+  return moved && (gain <= 0 || waste > gain);
+}
+
+/**
+ * The farthest point (room pixels) on the straight line towards `aim` the kid can walk to without
+ * leaving the walk boxes it crosses, each opening directly onto the next.
+ */
+function straightAhead(e: Engine, a: Actor, aim: { x: number; y: number }): { x: number; y: number } {
+  const lr = e.loadedRoom(a.room)!;
+  const { boxes, matrix } = lr.room;
+  const kx = a.x * 8;
+  const ky = a.y * 2;
+  const len = Math.hypot(aim.x - kx, aim.y - ky);
+  let box = a.walkbox;
+  let at = { x: a.x, y: a.y };
+  for (let t = 1; t <= len; t++) {
+    const x = Math.round((kx + ((aim.x - kx) * t) / len) / 8);
+    const y = Math.round((ky + ((aim.y - ky) * t) / len) / 2);
+    if (x === at.x && y === at.y) continue;
+    // Only spots the engine would walk to as they are, in this box or one it opens straight onto.
+    const r = adjustXYToBeInBox(e, a, x, y);
+    if (r.x !== x || r.y !== y) break;
+    if (r.box !== box && (lr.boxFlags[r.box] & (BOX_LOCKED | BOX_INVISIBLE) || nextBox(matrix, boxes.length, box, r.box) !== r.box)) break;
+    box = r.box;
+    at = { x, y };
+  }
+  return { x: at.x * 8, y: at.y * 2 };
 }

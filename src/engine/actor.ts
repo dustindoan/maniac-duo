@@ -394,6 +394,36 @@ export function walkActor(e: Engine, a: Actor) {
   calcMovementFactor(e, a, fx, fy);
 }
 
+/**
+ * The points an actor would pass through walking to (destX, destY), without moving it: the legs
+ * walkActor takes through the box matrix, ending where that walk would stop. Keep in step with
+ * startWalkActor and walkActor above.
+ */
+export function walkRoute(e: Engine, a: Actor, destX: number, destY: number): { x: number; y: number }[] {
+  const route = [{ x: a.x, y: a.y }];
+  const lr = roomBoxes(e, a);
+  if (!lr) return route;
+  const dest = adjustXYToBeInBox(e, a, destX, destY);
+  let box = a.walkbox;
+  for (let legs = 0; legs <= lr.room.boxes.length; legs++) {
+    if (box === dest.box) {
+      route.push({ x: dest.x, y: dest.y });
+      break;
+    }
+    const nb = box === INVALID_BOX ? dest.box : dest.box === INVALID_BOX ? -1 : nextBox(lr.room.matrix, lr.room.boxes.length, box, dest.box);
+    // Room 34's matrix names a box 2 it doesn't have; treat that like no way through.
+    if (nb < 0 || nb >= lr.room.boxes.length) break;
+    const { x, y } = route[route.length - 1];
+    const tmp = closestPtOnBox(coords(lr.room.boxes[nb]), x, y);
+    const cur = lr.room.boxes[box];
+    route.push(cur ? closestPtOnBox(coords(cur), tmp.x, tmp.y) : tmp);
+    box = nb;
+    const flags = lr.boxFlags[nb] ?? 0;
+    if (flags & BOX_LOCKED && !(flags & BOX_PLAYER_ONLY && !isPlayer(e, a))) break;
+  }
+  return route;
+}
+
 export function faceToObject(e: Engine, a: Actor, obj: number) {
   if (!e.isViewed(a.room)) return;
   const p = e.getObjectOrActorXY(obj);
