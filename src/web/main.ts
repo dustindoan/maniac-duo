@@ -131,9 +131,9 @@ class GameView {
 
   private schemes = () =>
     this.controls.local.length === 1
-      ? [{ up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'], left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], a: ['KeyZ', 'Space', 'Enter', 'KeyF'], b: ['KeyX', 'ShiftLeft', 'ShiftRight', 'KeyG'], items: ['KeyI', 'Tab', 'KeyR'] }]
+      ? [{ up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'], left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], a: ['KeyZ', 'Space', 'Enter', 'KeyF'], b: ['KeyX', 'ShiftLeft', 'ShiftRight', 'KeyG'], items: ['KeyC', 'Tab'] }]
       : [
-          { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], a: ['KeyF'], b: ['KeyG'], items: ['KeyR'] },
+          { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], a: ['KeyF'], b: ['KeyG'], items: ['KeyC'] },
           { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], a: ['KeyL'], b: ['KeyK'], items: ['KeyO'] },
         ];
 
@@ -227,7 +227,7 @@ function startLocal(kids: KidName[]) {
   show('game');
   const queue: Command[] = [];
   const view = new GameView(kids, (Math.random() * 2 ** 31) | 1, { local: [1, 2], send: (c) => queue.push(c) });
-  setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, R items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes.');
+  setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes.');
   let t = 0;
   setInterval(() => view.advance(++t, queue.splice(0)), 1000 / TICK_HZ);
 }
@@ -265,7 +265,7 @@ function startOnline(token: string) {
           catchingUp = false;
           for (const p of pending) if (p.tick > view!.ls.tick) view!.advance(p.tick, p.cmds);
           pending = [];
-          setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, I items, Esc skip. Gamepads work too.`);
+          setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip. Gamepads work too.`);
         }
       };
       chunk();

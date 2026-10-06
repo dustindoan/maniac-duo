@@ -407,6 +407,16 @@ export class Engine {
   /** Players to re-follow their kid at the next frame boundary. */
   refollow = new Set<number>();
 
+  /**
+   * A script put an actor in another room. When it is a player's kid and the script isn't that
+   * player's own (Ed's capture runs in the system context, and moves the kid before its cutscene
+   * begins), the player's view follows the kid once no world cutscene holds it.
+   */
+  actorMovedToRoom(actor: number, room: number) {
+    const p = this.players.findIndex((pl) => pl.kid === actor) + 1;
+    if (p && room && p !== this.cur && room !== this.ctxs[p].room) this.refollow.add(p);
+  }
+
   private syncActorVisibility() {
     for (let i = 1; i < NUM_ACTORS; i++) {
       const a = this.actors[i];

@@ -82,7 +82,7 @@ http://localhost:8787/?devrom (localhost only), so you skip the file picker.
 | Walk | arrows or WASD | WASD / arrows | D-pad or stick |
 | Do what's shown | Z, Space, Enter | F / L | A |
 | Next suggestion | X, Shift | G / K | B |
-| Items | I, Tab | R / O | Select or Y |
+| Items | C, Tab | C / O | Select or Y |
 | Skip cutscene | Esc | Esc | Start |
 
 The status line under your half always says what A will do ("Pull door mat…"; the ellipsis

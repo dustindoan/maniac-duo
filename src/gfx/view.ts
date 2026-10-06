@@ -115,7 +115,8 @@ export class ViewRenderer {
     const lr = e.loadedRoom(roomId);
     if (lr) {
       const lights = s.lightsOn(p);
-      const objs = e.visibleObjects(roomId).slice().reverse();
+      // Already in draw order: later patches win, e.g. a taken key's empty spot over the pulled mat.
+      const objs = e.visibleObjects(roomId);
       const bg = this.background(lr.room, objs, lights);
       const cam = this.cameraFor(s, p);
       const roomW = lr.room.width * 8;
@@ -129,13 +130,16 @@ export class ViewRenderer {
           dst.px[(sceneTop + y) * dst.w + BORDER + x] = bg.surface.px[y * bg.surface.w + rx];
         }
       }
-      // Actors, back to front, clipped to the scene and masked by foreground tiles.
+      // Actors, back to front, clipped to the scene. Foreground tiles hide an actor only when its
+      // walk box has a mask (ScummVM drawActorCostume's zbuf): a kid on the path in front of the
+      // fence is drawn whole, and only one standing behind it is hidden.
       const scene: Surface = { w: roomW, h: SCENE_H, px: new Uint8Array(0) };
       const actors = e.actors.filter((a) => a.id > 0 && a.visible && a.costume && a.room === roomId && a.animId !== 0xffff).sort((a, b) => a.y - b.y);
       for (const a of actors) {
         const tmp = surface(64, 96, 0xff);
         const ax = a.x * 8 - (a.facing === 90 ? 8 : 0);
         const ay = (a.y - a.elevation) * 2;
+        const behind = !!lr.room.boxes[a.walkbox]?.mask;
         drawCostume(this.rom, { set: e.costumeSet, costume: a.costume, anim: a.animId, pos: a.animPos, flipped: a.facing === 90, lightsOn: lights }, tmp, 32, 80, null);
         let bx0 = 99;
         let by0 = 99;
@@ -148,7 +152,7 @@ export class ViewRenderer {
             const rx = ax - 32 + x;
             const ry = ay - 80 + y;
             if (ry < 0 || ry >= SCENE_H || rx < 0 || rx >= scene.w) continue;
-            if (bg.front[ry * roomW + rx]) continue;
+            if (behind && bg.front[ry * roomW + rx]) continue;
             const sx = rx - scrollX;
             if (sx < 0 || sx >= VIEW_W) continue;
             dst.px[(sceneTop + ry) * dst.w + BORDER + sx] = c;

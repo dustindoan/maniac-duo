@@ -279,6 +279,7 @@ function op(e: Engine, s: Engine['slots'][number], ins: Ins) {
       const room = A(1);
       a.room = room;
       if (!room) putActor(e, a, 0, 0, 0);
+      else e.actorMovedToRoom(a.id, room);
       return;
     }
     case 'putActorAtObject': {
