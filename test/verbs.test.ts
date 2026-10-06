@@ -1,0 +1,48 @@
+import { describe, expect, test } from 'bun:test';
+import { Driver } from '../src/engine/driver';
+import { runRoute } from '../src/engine/route';
+import { Session } from '../src/engine/session';
+import { VERB, affordances, pairSentence } from '../src/verbs/affordances';
+import { suggestions } from '../src/verbs/focus';
+import { haveRom, rom } from './rom-fixture';
+
+const labels = (d: Driver, obj: number) => affordances(d.e, 1, obj).map((a) => a.label);
+
+describe.skipIf(!haveRom)('verb system', () => {
+  const game = (steps: string) => {
+    const d = new Driver(new Session(rom(), { kids: ['bernard', 'michael'], skipIntro: true }));
+    runRoute(d, steps);
+    return d;
+  };
+
+  test('only the verbs an object handles, and only the half of a toggle that applies', () => {
+    const d = game('1 go to 258');
+    expect(labels(d, 54)).toEqual(['Pull', 'Read']); // door mat, lying flat: no Push, Get is Pull's twin
+    runRoute(d, '1 pull door mat');
+    expect(labels(d, 54)).toEqual(['Push', 'Read']);
+    expect(labels(d, 55)).toEqual(['Get', 'Use']); // the key under it
+    expect(labels(d, 61)).toEqual(['Open', 'Use']); // locked front door: no Close, and not Go to yet
+    runRoute(d, '1 get key\n1 use key with front door');
+    expect(labels(d, 61)).toEqual(['Go to', 'Close', 'Use']);
+  });
+
+  test('items in your inventory drop Get; dragging means Give to people, Use on things', () => {
+    const d = game('1 go to 258\n1 pull door mat\n1 get key');
+    expect(labels(d, 55)).toEqual(['Use']);
+    expect(pairSentence(d.e, 55, 61)).toEqual({ verb: VERB.use, a: 55, b: 61 });
+    expect(pairSentence(d.e, 55, 4)).toEqual({ verb: VERB.give, a: 55, b: 4 });
+  });
+
+  test('suggestions put the newly revealed pickup first', () => {
+    const d = game('1 go to 258\n1 pull door mat');
+    const s = suggestions(d.e, 1, null).map((x) => x.label);
+    expect(s[0]).toBe('Get key');
+    expect(s).toContain('Push door mat');
+  });
+
+  test('holding an item turns suggestions into "use with" for nearby things', () => {
+    const d = game('1 go to 258\n1 pull door mat\n1 get key');
+    const s = suggestions(d.e, 1, 55).map((x) => x.label);
+    expect(s).toContain('Use key with front door');
+  });
+});

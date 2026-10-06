@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+*.log
+.DS_Store
+# Your ROM and anything derived from it never leave this machine.
+/rom/
+/data/

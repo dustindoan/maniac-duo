@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maniac Duo</title>
+    <style>
+      :root {
+        --bg: #111;
+        --panel: #1b1b1f;
+        --text: #e8e6e3;
+        --muted: #9a978f;
+        --accent: #e4b33c;
+        --line: #333;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      }
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 24px 16px;
+      }
+      h1 {
+        font-size: 20px;
+        letter-spacing: 0.04em;
+        margin: 0 0 4px;
+      }
+      .lede {
+        color: var(--muted);
+        margin: 0 0 24px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+        color: inherit;
+        background: #26262c;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 8px 12px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        color: #111;
+        border-color: var(--accent);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin: 12px 0;
+      }
+      .error {
+        color: #ff8a7a;
+        min-height: 1.5em;
+      }
+      #rom-drop {
+        border: 2px dashed #555;
+        border-radius: 8px;
+        padding: 32px;
+        text-align: center;
+      }
+      #invite input {
+        width: 100%;
+        min-width: 0;
+        flex: 1;
+      }
+      #game {
+        background: none;
+        border: none;
+        padding: 0;
+      }
+      #screen {
+        display: block;
+        width: min(100%, 768px, calc((100vh - 140px) * 256 / 308));
+        margin: 0 auto;
+        image-rendering: pixelated;
+        background: #000;
+        touch-action: none;
+      }
+      #game-status {
+        color: var(--muted);
+        text-align: center;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>MANIAC DUO</h1>
+      <p class="lede">Two kids, two players, one mansion. Runs the original NES game scripts from your own ROM.</p>
+
+      <section id="rom" hidden>
+        <div id="rom-drop">
+          <p>Drop your <strong>Maniac Mansion (USA)</strong> NES ROM here, or</p>
+          <input id="rom-file" type="file" accept=".nes,.bin" />
+          <p class="lede">It stays in this browser. Nothing from it is uploaded.</p>
+        </div>
+        <p id="rom-error" class="error"></p>
+      </section>
+
+      <section id="lobby" hidden>
+        <div class="row">
+          <label>Player 1 <select id="kid-1"><option value="bernard" selected>Bernard</option><option value="michael">Michael</option><option value="wendy">Wendy</option><option value="jeff">Jeff</option><option value="syd">Syd</option><option value="razor">Razor</option></select></label>
+          <label>Player 2 <select id="kid-2"><option value="bernard">Bernard</option><option value="michael" selected>Michael</option><option value="wendy">Wendy</option><option value="jeff">Jeff</option><option value="syd">Syd</option><option value="razor">Razor</option></select></label>
+        </div>
+        <div class="row">
+          <button id="create-online" class="primary">Create online game</button>
+          <button id="play-local">Play here, two players on one screen</button>
+          <button id="forget-rom">Forget my ROM</button>
+        </div>
+        <p id="lobby-error" class="error"></p>
+        <div id="invite" hidden>
+          <div class="row"><span>Your link</span><input id="link-1" readonly /><button id="copy-1">Copy</button><button id="play-1" class="primary">Play</button></div>
+          <div class="row"><span>Send to player 2</span><input id="link-2" readonly /><button id="copy-2">Copy</button></div>
+          <p class="lede">Each link is a seat. Come and go as you like: the mansion only moves while someone is playing.</p>
+        </div>
+      </section>
+
+      <section id="game" hidden>
+        <canvas id="screen" width="256" height="308"></canvas>
+        <p id="game-status"></p>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

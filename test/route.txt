@@ -1,0 +1,137 @@
+# Bernard (P1) and Michael (P2). Dave stays where the intro left him.
+
+# --- Into the mansion
+1 go to 258
+1 pull door mat
+1 get key
+1 use key with front door
+1 go to front door
+2 go to 258
+2 go to front door
+
+# --- Michael holds the gargoyle; the hidden basement door stays open while he stands still
+2 push 351
+1 go to 69
+1 turn on light switch
+1 get silver key
+1 go to stairs
+
+# --- Bernard: radio tube from the living room
+1 open 70
+1 go to 70
+1 open old fashion radio
+1 get radio tube
+1 go to 71
+
+# --- Edna guards the kitchen for 5 minutes after the front door opens; wait it out
+1 until !152
+
+# --- Bernard: through kitchen, dining room, pantry; unlock the pool door
+1 open 68
+1 go to 68
+1 open 82
+1 go to 82
+1 open 98
+1 go to 98
+1 use silver key with 125
+1 go to 125
+
+# --- Michael: fruit drinks from the pantry, wax fruit upstairs
+2 go to 68
+2 go to 82
+2 go to 98
+2 get fruit drinks
+2 go to 124
+2 go to 95
+2 go to 81
+2 go to stairs
+2 open 180
+2 go to 180
+2 get bowl of wax fruit
+2 go to 197
+2 open steel security door
+2 go to steel security door
+2 go to 194           # the Green Tentacle blocks the stairs
+2 wait 60             # let him settle in front of the stairs before approaching
+2 give bowl of wax fruit to Green Tentacle
+2 give fruit drinks to Green Tentacle
+2 go to 457           # past the tentacle to the upstairs hallway
+2 open 463
+2 go to 463           # the Hunk-O-Matic room
+2 use Hunk-O-Matic Machine (TM)
+2 go to 109
+2 go to stairs        # down past the (now friendly) Green Tentacle
+2 go to 456
+2 go to steel security door
+2 go to stairs
+2 go to front door
+2 open 562            # the bushes hide the grating
+2 open grating        # only possible with Hunk-O-Matic strength
+2 go to grating
+
+# --- Draining the pool: Michael opens the valve, Bernard climbs down for the glowing key
+2 open water valve # drains the pool -- and starts the reactor meltdown countdown
+1 go to 172           # down the ladder into the empty pool
+1 get glowing key
+1 go to 171           # back up before the water returns
+2 close water valve
+
+# --- Bernard heads upstairs and waits by the Hunk-O-Matic; Michael rings the doorbell to lure Ed out
+1 go to 137
+1 go to 124
+1 go to 95
+1 go to 81
+1 go to stairs
+1 go to steel security door
+1 go to 194
+1 go to 457
+1 go to 463
+2 go to 234
+2 push doorbell
+1 until a11=12        # Ed leaves the hallway on his way down to the front door
+1 go to 109
+1 open 462
+1 go to 462           # Weird Ed's room, while he's downstairs
+1 get hamster
+1 get card key
+1 go to 39            # out before Ed comes back
+
+# --- Bernard: the ham radio in the room behind the first hallway door
+1 open 460
+1 go to 460
+1 read wanted poster  # the Meteor Police number was randomized at boot (Var[77..80])
+1 use radio tube with tube socket   # only Bernard knows how
+1 turn on radio
+1 use radio           # brings up the dial pad
+1 dial var77
+1 wait 80             # the radio connects after a moment
+1 idle
+1 assert script136    # "I'll be there in 5 minutes!"
+
+# --- Bernard lets Nurse Edna catch him: the dungeon is the only way into the lab
+1 go to 465
+1 open 461
+1 go to 461           # Edna's room
+1 idle
+
+# --- In the dungeon: unlock the padlocks, open both doors for the police
+1 use glowing key with top padlock
+1 use glowing key with bottom padlock
+1 open outer door
+1 open inner door     # asks for the lab code on the keypad
+1 dial 0000           # Dr. Fred hasn't changed it yet
+1 wait 40
+
+# --- The Meteor Police arrive, find the doors open, and take the meteor away
+1 until !136
+1 until !43
+1 get badge           # the officer dropped it
+1 go to inner door    # into the lab
+1 give badge to Purple Tentacle   # "You're with the Meteor Police!! Dr. Fred made me do it!"
+1 open 168
+1 go to 168
+1 use card key with card slot
+1 go to 255
+1 turn off switch     # frees Dr. Fred from the machine
+1 wait 3000
+1 assert won
