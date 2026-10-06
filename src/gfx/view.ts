@@ -173,7 +173,7 @@ export class ViewRenderer {
     if (s.shared() !== null) {
       const area = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
       const scene = this.drawScene(s, 1, dst, { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, 0);
-      this.drawText(dst, s.messagesFor(1), 3, LINE, -1);
+      this.drawText(dst, s.dialogueFor(1), 3, LINE, -1);
       return players.map((p, i) => {
         const statusY = SHARED_STATUS_Y + i * (LINE + 4);
         this.font.draw(dst, status(p).slice(0, 32), 0, statusY, YELLOW);
@@ -184,7 +184,7 @@ export class ViewRenderer {
       const area = { x: 0, y: i * (HALF_H + GAP), w: FRAME_W, h: HALF_H };
       const scene = this.drawScene(s, p, dst, { x: BORDER, y: area.y, w: VIEW_W, h: HALF_H }, this.cropFor(s, p));
       // Dialogue over the top of the scene, status over the bottom.
-      this.drawText(dst, s.messagesFor(p), 2, area.y, NES_BLACK);
+      this.drawText(dst, s.dialogueFor(p), 2, area.y, NES_BLACK);
       const statusY = area.y + HALF_H - LINE;
       this.font.draw(dst, status(p).slice(0, 32), 0, statusY, YELLOW, NES_BLACK);
       return { ...scene, shared: false, area, statusY };
@@ -221,12 +221,15 @@ export class ViewRenderer {
     return views.map((v) => ({ ...v, shared: true }));
   }
 
-  /** The last `lines` lines of dialogue, from `top`. */
-  private drawText(dst: Surface, messages: string[], lines: number, top: number, bg: number) {
-    messages
-      .flatMap((m) => wrap(m))
+  /**
+   * The last `lines` lines of dialogue, from `top`. As on the NES, no names: each speaker's text
+   * is yellow or white, switching whenever someone else speaks (narration is yellow).
+   */
+  private drawText(dst: Surface, dialogue: { text: string; color: number }[], lines: number, top: number, bg: number) {
+    dialogue
+      .flatMap((d) => wrap(d.text).map((l) => ({ l, c: d.color ? WHITE : YELLOW })))
       .slice(-lines)
-      .forEach((l, i) => this.font.draw(dst, l, 0, top + i * LINE, WHITE, bg));
+      .forEach(({ l, c }, i) => this.font.draw(dst, l, 0, top + i * LINE, c, bg));
   }
 
   /**

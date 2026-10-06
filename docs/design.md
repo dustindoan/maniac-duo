@@ -130,11 +130,12 @@ Direct control (`src/verbs/focus.ts`, `src/web/player-ui.ts`):
 - **D-pad walks your kid.** Holding a direction walks toward that edge along the walk boxes, and
   releasing stops. This needed one new command, `stop`.
 - **Suggestions**: nearby things you can act on (nearest first, favouring the way you face, with
-  pickups first) take turns offering their verbs. The status line shows the current one, and the
-  thing is outlined.
-- **A** does what the status line says. **B** shows the next suggestion. With an item in hand,
-  the suggestions are the things to use it with, so B still steps through them; it drops the
-  item only when there's nothing nearby to use it with (the status line then says "B drops").
+  pickups first), each with its verbs. Nothing is chosen at first: **B** steps through them, all
+  of one thing's verbs before the next thing's, and back to nothing. The status line shows the chosen one, and the thing is
+  outlined; walking clears the choice.
+- **A** does what the status line says (nothing, if nothing is chosen). With an item in hand,
+  the suggestions are the things to use it with; B drops the item only when there's nothing
+  nearby to use it with (the status line then says "B drops").
 - **Items** opens the overlay over your half. Choosing Use or Give puts the item in hand, and the
   suggestions become "Use key with front door" for nearby things.
 - Mouse and touch: click the floor to walk, click a thing for its verbs.
@@ -177,8 +178,9 @@ simulate.
 - **Flashlight**: as on the NES, a dark room is black except for people, and the flashlight
   shows a 48x32 beam of the dimmed room. The original centres the beam on the cursor; with no
   cursor here, it centres on whoever holds the flashlight, at chest height.
-- **Message display** uses NES text timing; text is shown per room, not in the original
-  per-actor colours.
+- **Message display** uses NES text timing, and is shown per room. As on the NES, no names:
+  each speaker's text is yellow or white, switching whenever someone else speaks (narration is
+  yellow). The switch is kept per room, since one conversation can run in two contexts.
 - **Who does what in a world cutscene** is decided by the context rules above. They hold for the
   route here, but untested parts of the game (the other kids' endings, the plant, the Edsel) may
   surface script assumptions about a single ego; the fix would be a new entry in `WORLD_SCRIPTS`

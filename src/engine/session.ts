@@ -126,7 +126,11 @@ export class Session {
       this.selectWait = 2;
       return;
     }
-    if (this.selectStage > this.selection.length && !sys.cutscene && e.players.every((_, i) => e.canAct(i + 1))) this.ready = true;
+    if (this.selectStage > this.selection.length && !sys.cutscene && e.players.every((_, i) => e.canAct(i + 1))) {
+      this.ready = true;
+      // The original starts you as Dave, with his theme playing; here the players' kids take over.
+      e.playKidTheme(1);
+    }
   }
 
   apply(cmd: Command): boolean {
@@ -157,18 +161,24 @@ export class Session {
     return e.actors[e.egoOf(player)].room;
   }
 
-  /** Text currently shown to a player (narration from what they're watching, plus anything said in that room). */
-  messagesFor(player: number): string[] {
+  /** Dialogue a player sees: narration from what they're watching, plus anything said in that room. */
+  dialogueFor(player: number): { actor: number; text: string; color: number }[] {
     const e = this.engine;
     const watching = this.viewCtx(player);
     const room = this.viewRoom(player);
-    const out: string[] = [];
+    const out: { actor: number; text: string; color: number }[] = [];
     for (const c of e.ctxs) {
       const m = c.msg;
       if (!m.text) continue;
-      if (m.room === room || (m.actor === 0xff && (c.id === 0 || c.id === watching))) out.push((m.actor < 0x80 ? e.nameOf(m.actor) + ': ' : '') + m.text);
+      if (m.room === room || (m.actor === 0xff && (c.id === 0 || c.id === watching))) out.push({ actor: m.actor, text: m.text, color: m.color });
     }
     return out;
+  }
+
+  /** The same, with each speaker's name (for logs and tests). */
+  messagesFor(player: number): string[] {
+    const e = this.engine;
+    return this.dialogueFor(player).map((l) => (l.actor < 0x80 ? e.nameOf(l.actor) + ': ' : '') + l.text);
   }
 
   /**

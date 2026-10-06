@@ -18,6 +18,8 @@ let romCrc = 0;
 
 function show(screen: 'rom' | 'lobby' | 'game') {
   for (const s of ['rom', 'lobby', 'game']) $(s).hidden = s !== screen;
+  // While playing, the screen takes the whole window.
+  document.body.classList.toggle('playing', screen === 'game');
 }
 
 function setMessage(id: string, text: string) {

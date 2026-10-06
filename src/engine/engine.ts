@@ -38,6 +38,18 @@ export const SENTENCE_SCRIPT = 2;
 /** Runs whenever a room starts (after its entry script); in Maniac Mansion it picks the music. */
 const ROOM_START_SCRIPT = 5;
 const GO_TO_VERB = 13;
+/** Each kid's theme and the CD player that plays it (actor -> [sound, object]), from script 4. */
+const KID_THEMES = new Map([
+  [3, [71, 46]],
+  [2, [72, 47]],
+  [5, [73, 48]],
+  [1, [74, 49]],
+  [6, [75, 50]],
+  [7, [76, 51]],
+  [4, [77, 52]],
+]);
+/** The music the scripts restore after interruptions (Var[224]). */
+const V_MUSIC = 224;
 /** NES MM shows 28 tiles of room (224px) between 2-tile black borders. */
 export const VIEW_W = 224;
 const HALF = VIEW_W / 2;
@@ -133,6 +145,8 @@ export interface Message {
   msgCount: number;
   room: number;
   useTalkAnims: boolean;
+  /** Which of the two text colours (0 narration's, 1 the other): NES MM switches on each change of speaker. */
+  color: number;
 }
 
 export interface Camera {
@@ -190,7 +204,7 @@ export interface EngineEvent {
   value?: number;
 }
 
-const newMsg = (): Message => ({ have: 0, talkDelay: 0, actor: 0, buf: [], pos: 0, text: '', keepText: false, msgCount: 0, room: 0, useTalkAnims: false });
+const newMsg = (): Message => ({ have: 0, talkDelay: 0, actor: 0, buf: [], pos: 0, text: '', keepText: false, msgCount: 0, room: 0, useTalkAnims: false, color: 0 });
 
 /** Deterministic xorshift32. */
 class Rng {
@@ -1140,12 +1154,14 @@ export class Engine {
       if (!c.msg.keepText) this.stopTalk(c);
       c.msg.actor = actor;
       c.msg.room = a.room;
+      c.msg.color = this.talkColor(a.room, actor);
       if (a.visible && a.frame !== TALK_START_FRAME) startAnimActor(this, a, TALK_START_FRAME);
       c.msg.useTalkAnims = true;
     } else {
       if (!c.msg.keepText) this.stopTalk(c);
       c.msg.actor = 0xff;
       c.msg.room = this.ctxRoom();
+      c.msg.color = 0;
     }
     c.msg.buf = buf;
     c.msg.pos = 0;
@@ -1154,6 +1170,24 @@ export class Engine {
     this.vars[V.HAVE_MSG] = 0xff;
     this.vars[V.CHARCOUNT] = 0;
     this.displayDialog(c);
+  }
+
+  /** Who spoke last in each room, and in which colour. */
+  private talkColors = new Map<number, { actor: number; color: number }>();
+
+  /**
+   * The text colour for an actor speaking in a room. NES MM has two, and switches whenever the
+   * speaker changes, so a conversation alternates. Kept per room: one conversation can span the
+   * system context (Edna) and a player's (her victim), and two players' rooms shouldn't interfere.
+   */
+  private talkColor(room: number, actor: number) {
+    let t = this.talkColors.get(room);
+    if (!t) this.talkColors.set(room, (t = { actor: -1, color: 0 }));
+    if (t.actor !== actor) {
+      t.actor = actor;
+      t.color ^= 1;
+    }
+    return t.color;
   }
 
   stopTalk(c: Ctx) {
@@ -1236,6 +1270,24 @@ export class Engine {
 
   isSoundRunning(s: number) {
     return this.sound.status(s);
+  }
+
+  /**
+   * Switch to a player's kid's theme, as script 4 does when you pick a New Kid: their theme
+   * replaces the music if their CD player is on (locked), or the other kids' themes stop.
+   */
+  playKidTheme(p: number) {
+    const theme = KID_THEMES.get(this.egoOf(p));
+    if (!theme) return;
+    const [sound, cd] = theme;
+    if (this.isSoundRunning(sound)) return;
+    if (this.getState(cd) & 4) {
+      this.startSound(sound);
+      this.vars[V_MUSIC] = sound;
+      return;
+    }
+    for (const [other] of KID_THEMES.values()) if (other !== sound) this.stopSound(other);
+    this.vars[V_MUSIC] = 0;
   }
 
   // ---------------------------------------------------------------- player commands

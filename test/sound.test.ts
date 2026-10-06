@@ -141,6 +141,16 @@ describe.skipIf(!haveRom)('sound driver', () => {
     expect(ls.errors).toEqual([]);
   });
 
+  test("when the players take over from the intro, player 1's kid's theme replaces Dave's", () => {
+    for (const [kids, theme] of [[['bernard', 'michael'], 73], [['michael', 'bernard'], 77]] as const) {
+      const s = new Session(rom(), { kids: [...kids], skipIntro: true });
+      for (let n = 0; !s.ready && n < 1000; n++) s.step();
+      for (let i = 0; i < 30; i++) s.step();
+      expect(s.engine.isSoundRunning(71)).toBe(0);
+      expect(s.engine.isSoundRunning(theme)).toBe(1);
+    }
+  });
+
   test('register writes encode a register and a byte', () => {
     expect(apuWrite(0x15, 0x1ff)).toBe(0x15ff);
   });

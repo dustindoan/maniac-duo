@@ -90,8 +90,9 @@ http://localhost:8787/?devrom (localhost only), so you skip the file picker.
 | Skip cutscene | Esc | Esc | Start |
 | Mute | M | M | |
 
-The status line under your half always says what A will do ("Pull door mat…"; the ellipsis
-means B has more). Mouse and touch work too: click the floor to walk, click a thing for its verbs.
+Nothing is chosen until you press B, which steps through what's nearby ("Pull door mat…"; the
+ellipsis means B has more) and back to nothing. The status line under your half says what A will
+do. Mouse and touch work too: click the floor to walk, click a thing for its verbs.
 
 ## Test it
 
