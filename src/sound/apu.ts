@@ -203,6 +203,13 @@ class Triangle implements Generator {
   }
 }
 
+/**
+ * Noise output per volume step. ScummVM's +-2 makes full-volume noise half as loud as a full
+ * square (+-4); on the NES mixer it is about 1.17 times as loud, which matters because most
+ * of the game's sound effects (doors, switches) are noise.
+ */
+const NOISE_GAIN = 4.7;
+
 const NOISE_FREQ = [0x004, 0x008, 0x010, 0x020, 0x040, 0x060, 0x080, 0x0a0, 0x0ca, 0x0fe, 0x17c, 0x1fc, 0x2fa, 0x3f8, 0x7f2, 0xfe4];
 
 class Noise implements Generator {
@@ -223,7 +230,7 @@ class Noise implements Generator {
   private envClk = false;
 
   private level() {
-    return (this.curD & 0x4000 ? -2 : 2) * this.vol;
+    return (this.curD & 0x4000 ? -NOISE_GAIN : NOISE_GAIN) * this.vol;
   }
 
   write(reg: number, val: number) {

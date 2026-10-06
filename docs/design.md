@@ -92,7 +92,9 @@ sounds to finish: how long a sound runs comes from its data, deterministically, 
 Its output is a list of sound-chip register writes per engine frame. The browser feeds those to
 `src/sound/apu.ts`, an NES sound chip (two square waves, a triangle, noise), and queues the
 samples a little ahead of the speakers (`src/web/audio.ts`), nudging playback speed by at most 2%
-so uneven ticks neither stutter nor lag. Nothing the chip does feeds back into the game.
+so uneven ticks neither stutter nor lag. Nothing the chip does feeds back into the game. The
+noise channel, which most sound effects use, is mixed at its NES level relative to the squares
+(ScummVM's simplified chip has it at half that).
 
 There is one driver, as there was one chip: both players hear every sound and the music, whichever
 room it comes from, and a sound effect mutes the music while it plays, as in the original.
