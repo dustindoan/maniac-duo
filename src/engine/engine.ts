@@ -100,6 +100,8 @@ export interface Slot {
   running: boolean;
   paused: boolean;
   frozen: number;
+  /** Players' freezes of a world script, put off while a world cutscene runs. */
+  held: number;
   pc: number;
   delay: number;
   freezeResistant: boolean;
@@ -253,7 +255,7 @@ export class Engine {
   }
 
   private deadSlot(): Slot {
-    return { number: 0, kind: 'G', room: 0, running: false, paused: false, frozen: 0, pc: 0, delay: 0, freezeResistant: false, recursive: false, ctx: 0, didExec: false };
+    return { number: 0, kind: 'G', room: 0, running: false, paused: false, frozen: 0, held: 0, pc: 0, delay: 0, freezeResistant: false, recursive: false, ctx: 0, didExec: false };
   }
 
   private newCtx(id: number): Ctx {
@@ -482,7 +484,7 @@ export class Engine {
     if (!this.rom.scripts[script]) return;
     if (!recursive) this.stopScript(script);
     const i = this.getScriptSlot();
-    Object.assign(this.slots[i], { number: script, kind: 'G', room: 0, running: true, paused: false, frozen: 0, pc: 0, delay: 0, freezeResistant, recursive, ctx, didExec: false });
+    Object.assign(this.slots[i], { number: script, kind: 'G', room: 0, running: true, paused: false, frozen: 0, held: 0, pc: 0, delay: 0, freezeResistant, recursive, ctx, didExec: false });
     this.trace?.(`runScript ${script} ctx=${ctx} slot=${i}`);
     this.runNested(i);
   }
@@ -495,14 +497,14 @@ export class Engine {
     const offs = this.getVerbEntrypoint(obj, entry);
     if (!offs) return;
     const home = this.objIndex.get(obj)!;
-    Object.assign(this.slots[slot], { number: obj, kind: where === 'inventory' ? 'I' : 'O', room: home.room, running: true, paused: false, frozen: 0, pc: offs, delay: 0, freezeResistant, recursive, ctx: this.cur, didExec: false });
+    Object.assign(this.slots[slot], { number: obj, kind: where === 'inventory' ? 'I' : 'O', room: home.room, running: true, paused: false, frozen: 0, held: 0, pc: offs, delay: 0, freezeResistant, recursive, ctx: this.cur, didExec: false });
     this.trace?.(`runObjectScript ${obj} verb=${entry} ctx=${this.cur}`);
     this.runNested(slot);
   }
 
   private runRoomScript(number: number, room: number, offs: number) {
     const i = this.getScriptSlot();
-    Object.assign(this.slots[i], { number, kind: 'R', room, running: true, paused: false, frozen: 0, pc: offs, delay: 0, freezeResistant: false, recursive: false, ctx: this.cur, didExec: false });
+    Object.assign(this.slots[i], { number, kind: 'R', room, running: true, paused: false, frozen: 0, held: 0, pc: offs, delay: 0, freezeResistant: false, recursive: false, ctx: this.cur, didExec: false });
     this.runNested(i);
   }
 
@@ -527,6 +529,7 @@ export class Engine {
     s.running = false;
     s.paused = false;
     s.frozen = 0;
+    s.held = 0;
     if (this.curSlot === i) this.curSlot = -1;
   }
 
@@ -563,17 +566,29 @@ export class Engine {
     return this.slots.some((s) => s.number === script && this.scopedMatch(s, script));
   }
 
-  /** v2 freezeScripts, limited to the given context and the system context. */
+  /**
+   * v2 freezeScripts, limited to the given context and the system context. A player's freeze of world
+   * scripts waits while the world is in a cutscene: the player can't act until it ends, so a freeze
+   * waiting on them (a keypad opened just as Ed answers the door) would never be released.
+   */
   freezeScripts(by: number) {
+    const later = by > 0 && this.ctxs[0].cutscene;
     for (let i = 0; i < NUM_SLOTS; i++) {
       const s = this.slots[i];
       if (i === this.curSlot || !s.number || s.freezeResistant) continue;
-      if (s.ctx === by || s.ctx === 0) s.frozen |= 1 << by;
+      if (s.ctx === by) s.frozen |= 1 << by;
+      else if (s.ctx === 0) {
+        if (later) s.held |= 1 << by;
+        else s.frozen |= 1 << by;
+      }
     }
   }
 
   unfreezeScripts(by: number) {
-    for (const s of this.slots) s.frozen &= ~(1 << by);
+    for (const s of this.slots) {
+      s.frozen &= ~(1 << by);
+      s.held &= ~(1 << by);
+    }
   }
 
   // ---------------------------------------------------------------- variables
@@ -785,7 +800,15 @@ export class Engine {
     this.resetSentence();
     c.cutPtr = 0;
     c.cutscene = true;
-    if (c.id === 0) this.kidRoomsAtCutscene = this.players.map((pl) => this.actors[pl.kid].room);
+    if (c.id === 0) {
+      this.kidRoomsAtCutscene = this.players.map((pl) => this.actors[pl.kid].room);
+      // The world's cutscene outranks players' freezes: they wait until it ends.
+      for (const s of this.slots) {
+        if (s.ctx !== 0) continue;
+        s.held |= s.frozen & ~1;
+        s.frozen &= 1;
+      }
+    }
   }
 
   /** Where each player's kid was when the current world cutscene began. */
@@ -804,6 +827,12 @@ export class Engine {
       if (c.room) this.startScene(0);
       // Players whose kid was moved by the cutscene (e.g. captured) follow them to the new room.
       for (let p = 1; p < this.ctxs.length; p++) if (this.actors[this.egoOf(p)].room !== this.kidRoomsAtCutscene[p - 1]) this.refollow.add(p);
+      // Players' freezes put off by the cutscene (a keypad still open) take hold again.
+      for (const s of this.slots) {
+        if (s.ctx !== 0) continue;
+        s.frozen |= s.held;
+        s.held = 0;
+      }
     } else this.actorFollowCamera(this.vars[V.EGO]);
   }
 
