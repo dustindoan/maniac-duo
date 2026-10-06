@@ -8,6 +8,8 @@ import { type Rom, identify, loadRom, stripHeader } from '../rom/rom';
 import type { CreateGameResponse, ServerMessage } from '../server/protocol';
 import { TICK_HZ } from '../server/protocol';
 import { AudioOut } from './audio';
+import { Footfalls } from './footsteps';
+import { Voices } from './voices';
 import { type Button, type Pad, PlayerUI } from './player-ui';
 import { forgetRom, loadStoredRom, storeRom } from './rom-store';
 
@@ -74,6 +76,8 @@ class GameView {
   uis: PlayerUI[];
   renderer: ViewRenderer;
   audio = new AudioOut();
+  private footfalls = new Footfalls();
+  private voices = new Voices(() => this.audio.muted);
   online = new Set<number>([1, 2]);
   /** World fingerprints every 60 ticks: two clients of one game must agree (desync check). */
   hashes = new Map<number, string>();
@@ -122,6 +126,8 @@ class GameView {
       for (const ui of this.uis) ui.reset();
     }
     this.audio.play(this.ls.session.engine.sound.out);
+    for (const f of this.footfalls.update(this.ls.session, this.controls.local)) this.audio.footstep(f.foot);
+    this.voices.update(this.ls.session, this.controls.local);
     if (t % 60 === 0) {
       const h = stateHash(this.ls.session);
       this.hashes.set(t, h);
@@ -227,6 +233,11 @@ class GameView {
       this.audio.unlock();
       if (ev.code === 'KeyM') {
         if (!ev.repeat) this.audio.toggleMute();
+        if (this.audio.muted) this.voices.silence();
+        return;
+      }
+      if (ev.code === 'KeyV') {
+        if (!ev.repeat) this.voices.toggle();
         return;
       }
       if (ev.code === 'Escape') {
@@ -280,7 +291,7 @@ function startLocal(kids: KidName[]) {
   show('game');
   const queue: Command[] = [];
   const view = new GameView(kids, (Math.random() * 2 ** 31) | 1, { local: [1, 2], send: (c) => queue.push(c) });
-  setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes.');
+  setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes, V voices.');
   // Keep to the real clock: timers fire late or early, and sound should neither lag nor stutter.
   const start = performance.now();
   let t = 0;
@@ -328,7 +339,7 @@ function startOnline(token: string) {
           catchingUp = false;
           for (const p of pending) if (p.tick > view!.ls.tick) view!.advance(p.tick, p.cmds);
           pending = [];
-          setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip, M mute. Gamepads work too.`);
+          setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip, M mute, V voices. Gamepads work too.`);
         }
       };
       chunk();

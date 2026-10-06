@@ -4,7 +4,7 @@
 //
 // Presentation only: nothing here affects the game. The driver (driver.ts) decides what plays.
 
-import { APU_ENABLE, type ApuWrite } from './driver';
+import { APU_ENABLE, APU_MUSIC, type ApuWrite } from './driver';
 
 const CPU_HZ = 1789773;
 /** CPU cycles per quarter frame of the APU's frame counter. */
@@ -17,6 +17,8 @@ const LENGTH_COUNTS = [
 ];
 
 interface Generator {
+  /** Last played by the music (rather than a sound effect), for the mix. */
+  music: boolean;
   timer: number;
   /** Current output level. */
   pos: number;
@@ -36,6 +38,7 @@ const DUTIES = [
 ];
 
 class Square implements Generator {
+  music = false;
   timer = 0;
   pos = 0;
   cycles = 1;
@@ -142,6 +145,7 @@ const TRI_DUTY = [
 ];
 
 class Triangle implements Generator {
+  music = false;
   timer = 0;
   pos = 0;
   cycles = 1;
@@ -213,6 +217,7 @@ const NOISE_GAIN = 4.7;
 const NOISE_FREQ = [0x004, 0x008, 0x010, 0x020, 0x040, 0x060, 0x080, 0x0a0, 0x0ca, 0x0fe, 0x17c, 0x1fc, 0x2fa, 0x3f8, 0x7f2, 0xfe4];
 
 class Noise implements Generator {
+  music = false;
   timer = 0;
   pos = 0;
   cycles = 1;
@@ -293,12 +298,19 @@ export class Apu {
   private frameCycles = 1;
   private frameNum = 0;
 
-  constructor(private sampleRate: number) {}
+  /** `gains` balance the music against the sound effects, channel by channel. */
+  constructor(
+    private sampleRate: number,
+    private gains = { music: 1, effects: 1 },
+  ) {}
 
   /** Apply one write from the driver. */
   apply(w: ApuWrite) {
-    const reg = w >> 8;
+    const reg = (w >> 8) & 0xff;
     const val = w & 0xff;
+    const music = (w & APU_MUSIC) !== 0;
+    if (reg < 0x10) this.gens[reg >> 2].music = music;
+    if (reg === APU_ENABLE) this.gens.forEach((g, i) => val & (1 << i) && (g.music = music));
     this.writeReg(reg === APU_ENABLE ? 0x15 : reg, reg === APU_ENABLE ? this.status() | val : val);
   }
 
@@ -317,7 +329,7 @@ export class Apu {
     const sampcycles = 1 + Math.floor((CPU_HZ - this.bufPos - 1) / this.sampleRate);
     this.bufPos = this.bufPos + sampcycles * this.sampleRate - CPU_HZ;
     let samppos = 0;
-    for (const g of this.gens) samppos += step(g, sampcycles, this.frameCycles, this.frameNum);
+    for (const g of this.gens) samppos += step(g, sampcycles, this.frameCycles, this.frameNum) * (g.music ? this.gains.music : this.gains.effects);
     let tmp = sampcycles;
     while (tmp >= this.frameCycles) {
       tmp -= this.frameCycles;

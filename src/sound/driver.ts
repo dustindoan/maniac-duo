@@ -14,6 +14,8 @@ export type ApuWrite = number;
 /** Pseudo register: enable channels `val` on top of those still sounding (the driver's `status | mask`). */
 export const APU_ENABLE = 0x40;
 export const apuWrite = (reg: number, val: number): ApuWrite => (reg << 8) | (val & 0xff);
+/** Marks a write made by the music rather than a sound effect, so the mix can balance the two. */
+export const APU_MUSIC = 1 << 16;
 
 const NUMSLOTS = 3;
 const NUMCHANS = 4;
@@ -73,6 +75,8 @@ export class SoundDriver {
   private mchan: MusicChannel[] = Array.from({ length: NUMCHANS }, () => ({ command: 0, framedelay: 0, pitch: 0, volume: 0, voldelta: 0, envflags: 0, cmdlock: 0 }));
   private sfxPlaying = false;
   private wasSfxPlaying = false;
+  /** Set while the music plays, to tag its writes. */
+  private musicPlaying = false;
   private numNotes = 0;
   /** Start of the music's note instruments and note pitches, within slot 2's resource. */
   private aux1 = 0;
@@ -164,7 +168,7 @@ export class SoundDriver {
   }
 
   private writeChannel(chan: number, offset: number, value: number) {
-    this.frameOut.push(apuWrite(4 * chan + offset, value));
+    this.frameOut.push(apuWrite(4 * chan + offset, value) | (this.musicPlaying ? APU_MUSIC : 0));
   }
 
   private writeControl(value: number) {
@@ -172,7 +176,7 @@ export class SoundDriver {
   }
 
   private enable(chan: number) {
-    this.frameOut.push(apuWrite(APU_ENABLE, CHANNEL_MASK[chan]));
+    this.frameOut.push(apuWrite(APU_ENABLE, CHANNEL_MASK[chan]) | (this.musicPlaying ? APU_MUSIC : 0));
   }
 
   private checkSilenceChannels(chan: number) {
@@ -230,6 +234,15 @@ export class SoundDriver {
   private playMusic() {
     const s = this.slot[2];
     if (!s.framesleft) return;
+    this.musicPlaying = true;
+    try {
+      this.playMusicFrame(s);
+    } finally {
+      this.musicPlaying = false;
+    }
+  }
+
+  private playMusicFrame(s: Slot) {
 
     if (this.wasSfxPlaying && !this.sfxPlaying)
       for (let x = 1; x >= 0; x--)

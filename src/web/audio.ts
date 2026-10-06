@@ -16,7 +16,15 @@ const MAX_AHEAD = 0.5;
 const MAX_SKEW = 0.02;
 /** Skew per second of lead beyond LEAD. */
 const SKEW_GAIN = 0.1;
-const VOLUME = 0.5;
+/**
+ * The mix. The game's audio sits under the browser's speech (which can't go louder than full),
+ * and within it the music sits under the sound effects; a chip channel counts as music or effect
+ * by whoever last played on it.
+ */
+const VOLUME = 0.35;
+const MIX = { music: 0.6, effects: 1.5 };
+/** Footsteps peak about as loud as the game's door sounds, but they're short. */
+const STEP_VOLUME = 0.17;
 const MUTE_KEY = 'maniac-duo.muted';
 
 export class AudioOut {
@@ -27,6 +35,7 @@ export class AudioOut {
   private next = 0;
   /** Fractional samples carried between frames when the rate isn't a multiple of 60. */
   private carry = 0;
+  private stepSound: AudioBuffer | null = null;
   muted = false;
 
   constructor() {
@@ -44,9 +53,21 @@ export class AudioOut {
       this.gain = this.ctx.createGain();
       this.gain.gain.value = this.muted ? 0 : VOLUME;
       this.gain.connect(this.ctx.destination);
-      this.apu = new Apu(this.ctx.sampleRate);
+      this.apu = new Apu(this.ctx.sampleRate, MIX);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+  }
+
+  /** A soft footstep, now (in time with the picture, not the queued game sound). */
+  footstep(foot: number) {
+    const { ctx, gain } = this;
+    if (!ctx || !gain || ctx.state !== 'running') return;
+    this.stepSound ??= footstepSound(ctx);
+    const src = ctx.createBufferSource();
+    src.buffer = this.stepSound;
+    src.playbackRate.value = foot ? 0.85 : 1;
+    src.connect(gain);
+    src.start();
   }
 
   toggleMute() {
@@ -86,4 +107,27 @@ export class AudioOut {
     src.start(this.next);
     this.next += buf.duration / (1 + skew);
   }
+}
+
+/**
+ * A footstep in the NES's voice: a 50 ms burst from the noise channel's shift register (at one
+ * of its lower rates, for a soft scuff rather than a hiss), dying away quickly.
+ */
+function footstepSound(ctx: AudioContext): AudioBuffer {
+  const rate = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, Math.round(rate * 0.05), rate);
+  const out = buf.getChannelData(0);
+  const shiftHz = 1789773 / 0x2fa; // noise period 12
+  let lfsr = 1;
+  let phase = 0;
+  for (let i = 0; i < out.length; i++) {
+    phase += shiftHz / rate;
+    while (phase >= 1) {
+      phase--;
+      lfsr = ((lfsr << 1) | (((lfsr >> 14) ^ (lfsr >> 13)) & 1)) & 0x7fff;
+    }
+    const decay = (1 - i / out.length) ** 2;
+    out[i] = (lfsr & 0x4000 ? -1 : 1) * STEP_VOLUME * decay;
+  }
+  return buf;
 }

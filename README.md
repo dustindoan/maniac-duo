@@ -89,6 +89,7 @@ http://localhost:8787/?devrom (localhost only), so you skip the file picker.
 | Items | C, Tab | C / O | Select or Y |
 | Skip cutscene | Esc | Esc | Start |
 | Mute | M | M | |
+| Voices on/off | V | V | |
 
 Nothing is chosen until you press B, which steps through what's nearby ("Pull door mat…"; the
 ellipsis means B has more) and back to nothing. The status line under your half says what A will

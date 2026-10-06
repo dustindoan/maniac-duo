@@ -96,6 +96,17 @@ so uneven ticks neither stutter nor lag. Nothing the chip does feeds back into t
 noise channel, which most sound effects use, is mixed at its NES level relative to the squares
 (ScummVM's simplified chip has it at half that).
 
+Footsteps are ours, not the original's: a soft NES-noise scuff each time a walking actor's foot
+lands (twice per walk cycle), for the rooms on your screen (`src/web/footsteps.ts`). They play
+in the browser beside the chip, not through the game's driver, whose effects would mute the
+music, and nothing in the game depends on them.
+
+Voices are ours too: characters' lines (anything a character says, the lines with mouth
+animation, never narration) are read aloud by the browser's speech synthesis as they appear on
+your screen (`src/web/voices.ts`). Each character gets an English system voice of the right
+kind and a pitch of their own; a line still being spoken when the next appears is cut off, so
+speech keeps up with the text. V toggles voices; M silences them with everything else.
+
 There is one driver, as there was one chip: both players hear every sound and the music, whichever
 room it comes from, and a sound effect mutes the music while it plays, as in the original.
 

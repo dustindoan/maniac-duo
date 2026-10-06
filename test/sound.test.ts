@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Lockstep } from '../src/engine/lockstep';
 import { type Command, Session } from '../src/engine/session';
 import { Apu } from '../src/sound/apu';
-import { SoundDriver, apuWrite } from '../src/sound/driver';
+import { APU_MUSIC, SoundDriver, apuWrite } from '../src/sound/driver';
 import { haveRom, rom } from './rom-fixture';
 
 describe('apu', () => {
@@ -21,6 +21,20 @@ describe('apu', () => {
       prev = s;
     }
     expect(Math.abs(rises - 440)).toBeLessThanOrEqual(2);
+  });
+
+  test('music and effects are mixed at their own levels', () => {
+    const level = (music: boolean, gains: { music: number; effects: number }) => {
+      const apu = new Apu(44100, gains);
+      const tag = music ? APU_MUSIC : 0;
+      for (const [r, v] of [[0x15, 1], [0x00, 0x3f], [0x02, 0xfd], [0x03, 0x08]]) apu.apply((r << 8) | v | (r === 0x15 ? 0 : tag));
+      let sum = 0;
+      for (let i = 0; i < 4410; i++) sum += apu.sample() ** 2;
+      return Math.sqrt(sum / 4410);
+    };
+    const gains = { music: 0.5, effects: 1.5 };
+    expect(level(true, gains) / level(true, { music: 1, effects: 1 })).toBeCloseTo(0.5, 2);
+    expect(level(false, gains) / level(false, { music: 1, effects: 1 })).toBeCloseTo(1.5, 2);
   });
 
   test('silence until a channel is enabled', () => {
@@ -69,7 +83,7 @@ describe.skipIf(!haveRom)('sound driver', () => {
     d.start(1);
     run(d, 120);
     // Sound 13 plays on the noise channel only, so the triangle's registers are the music's.
-    const triangle = (ws: number[]) => ws.filter((w) => w >> 8 >= 0x08 && w >> 8 <= 0x0b).length;
+    const triangle = (ws: number[]) => ws.filter((w) => ((w >> 8) & 0xff) >= 0x08 && ((w >> 8) & 0xff) <= 0x0b).length;
     expect(triangle(run(d, 30))).toBeGreaterThan(0);
     d.start(13);
     expect(triangle(run(d, 30))).toBe(0);
@@ -149,6 +163,19 @@ describe.skipIf(!haveRom)('sound driver', () => {
       expect(s.engine.isSoundRunning(71)).toBe(0);
       expect(s.engine.isSoundRunning(theme)).toBe(1);
     }
+  });
+
+  test("music's writes are tagged, so the mix can set it against the effects", () => {
+    const d = new SoundDriver(rom().sounds);
+    d.start(1);
+    const music = run(d, 30).filter((w) => w >> 8 !== 0x15);
+    expect(music.length).toBeGreaterThan(0);
+    expect(music.every((w) => w & APU_MUSIC)).toBe(true);
+    const fx = new SoundDriver(rom().sounds);
+    fx.start(13);
+    const effect = run(fx, 30).filter((w) => w >> 8 !== 0x15);
+    expect(effect.length).toBeGreaterThan(0);
+    expect(effect.some((w) => w & APU_MUSIC)).toBe(false);
   });
 
   test('register writes encode a register and a byte', () => {
