@@ -104,8 +104,10 @@ music, and nothing in the game depends on them.
 Voices are ours too: characters' lines (anything a character says, the lines with mouth
 animation, never narration) are read aloud by the browser's speech synthesis as they appear on
 your screen (`src/web/voices.ts`). Each character gets an English system voice of the right
-kind and a pitch of their own; a line still being spoken when the next appears is cut off, so
-speech keeps up with the text. V toggles voices; M silences them with everything else.
+kind and a pitch of their own (a voice named like them if there is one). A line is let finish;
+a line still waiting its turn when another appears is dropped, so speech is never more than a
+line behind the text. The waiting line is kept by us rather than queued in the browser, because
+Chrome can lose a chosen voice after `speechSynthesis.cancel()`. V toggles voices; M silences them with everything else.
 
 There is one driver, as there was one chip: both players hear every sound and the music, whichever
 room it comes from, and a sound effect mutes the music while it plays, as in the original.

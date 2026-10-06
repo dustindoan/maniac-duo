@@ -63,14 +63,21 @@ const VOICES_KEY = 'maniac-duo.voices';
 
 /**
  * Speaks characters' lines, one at a time. A line is let finish, but speech is never more than one
- * line behind the text: a line still waiting its turn when another arrives is dropped.
+ * line behind the text: a line still waiting its turn when another arrives is dropped. The waiting
+ * line is kept here, not queued in the browser: Chrome can lose an utterance's voice after
+ * speechSynthesis.cancel(), so cancel is only for silencing.
  */
 export class Voices {
   enabled = true;
   private lines = new NewLines();
-  private synth = globalThis.speechSynthesis as SpeechSynthesis | undefined;
+  /** The line being spoken (kept referenced, or Chrome may drop its end event), and the next. */
+  private speaking: SpeechSynthesisUtterance | null = null;
+  private next: SpokenLine | null = null;
 
-  constructor(private muted: () => boolean) {
+  constructor(
+    private muted: () => boolean,
+    private synth = globalThis.speechSynthesis as SpeechSynthesis | undefined,
+  ) {
     try {
       this.enabled = localStorage.getItem(VOICES_KEY) !== '0';
     } catch {}
@@ -85,24 +92,43 @@ export class Voices {
   }
 
   silence() {
+    this.next = null;
+    this.speaking = null;
     this.synth?.cancel();
   }
 
   /** Call once per engine tick: says whatever characters have just started saying. */
   update(s: Session, viewers: number[]) {
-    const fresh = this.lines.update(s, viewers);
+    this.hear(this.lines.update(s, viewers));
+  }
+
+  /** Lines that just appeared: say the latest now, or once the current line ends. */
+  hear(fresh: SpokenLine[]) {
+    // An end event the browser never sent: nothing is really speaking any more.
+    if (this.speaking && this.synth && !this.synth.speaking && !this.synth.pending) this.speaking = null;
     if (!fresh.length || !this.synth || !this.enabled || this.muted()) return;
-    if (this.synth.pending) this.synth.cancel();
-    this.say(fresh[fresh.length - 1]);
+    const latest = fresh[fresh.length - 1];
+    if (this.speaking) this.next = latest;
+    else this.say(latest);
   }
 
   private say(l: SpokenLine) {
     const u = new SpeechSynthesisUtterance(speakable(l.text));
     const p = PROFILES[l.actor] ?? { pitch: 1 };
     u.voice = this.voiceFor(l, p);
+    // Chrome honours a chosen voice more reliably when the language matches it.
+    if (u.voice) u.lang = u.voice.lang;
     u.pitch = p.pitch;
     u.rate = RATE * (p.rate ?? 1);
     u.volume = 1;
+    u.onend = u.onerror = () => {
+      if (this.speaking !== u) return;
+      this.speaking = null;
+      const n = this.next;
+      this.next = null;
+      if (n && this.enabled && !this.muted()) this.say(n);
+    };
+    this.speaking = u;
     this.synth!.speak(u);
   }
 
