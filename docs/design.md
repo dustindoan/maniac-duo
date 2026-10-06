@@ -141,7 +141,9 @@ Direct control (`src/verbs/focus.ts`, `src/web/player-ui.ts`):
   the suggestions are the things to use it with; B drops the item only when there's nothing
   nearby to use it with (the status line then says "B drops").
 - **Items** opens the overlay over your half. Choosing Use or Give puts the item in hand, and the
-  suggestions become "Use key with front door" for nearby things.
+  suggestions become "Use key with front door" for nearby things. Opening Items again and
+  choosing another item completes "Use batteries with flashlight"; choosing the one in hand puts
+  it back.
 - Mouse and touch: click the floor to walk, click a thing for its verbs.
 - **Go to a person** walks your kid up beside them. The game's scripts do nothing with that
   sentence, so the engine handles it (`Engine.sentence`).

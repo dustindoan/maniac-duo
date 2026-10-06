@@ -144,7 +144,7 @@ export class PlayerUI {
       this.inventoryOpen = false;
       return;
     }
-    if (b === 'a' && items[this.invIndex]) this.openMenu(items[this.invIndex]);
+    if (b === 'a' && items[this.invIndex]) this.pickItem(items[this.invIndex]);
   }
 
   private menuPress(b: Button) {
@@ -154,6 +154,20 @@ export class PlayerUI {
       return;
     }
     if (b === 'a') this.choose(m.items[m.index]);
+  }
+
+  /**
+   * Choose an item in the inventory: with another item in hand, that completes the sentence
+   * ("Use batteries with flashlight"); choosing the one in hand puts it back. Otherwise, its verbs.
+   */
+  private pickItem(obj: number) {
+    if (!this.inHand) return this.openMenu(obj);
+    if (obj !== this.inHand.item) {
+      const s = pairSentence(this.e, this.inHand.item, obj);
+      this.sentence(s.verb, s.a, s.b);
+    }
+    this.inHand = null;
+    this.inventoryOpen = false;
   }
 
   private openMenu(obj: number) {
@@ -213,7 +227,7 @@ export class PlayerUI {
       const i = this.invHit(x, y);
       if (i >= 0) {
         this.invIndex = i;
-        this.openMenu(this.items()[i]);
+        this.pickItem(this.items()[i]);
       } else this.inventoryOpen = false;
       return;
     }
@@ -285,7 +299,9 @@ export class PlayerUI {
       const box = this.inventoryBox();
       fill(dst, box, 0x0f);
       const items = this.items();
-      font.draw(dst, `${this.e.nameOf(this.kid())}'s things`.slice(0, 27), box.x + 8, box.y + 2, YELLOW);
+      // With an item in hand, the items are things to use it with (you can't give to an item).
+      const title = this.inHand ? `Use ${this.e.nameOf(this.inHand.item)} with^` : `${this.e.nameOf(this.kid())}'s things`;
+      font.draw(dst, title.slice(0, 27), box.x + 8, box.y + 2, YELLOW);
       if (!items.length) font.draw(dst, '(nothing)', box.x + 8, box.y + 16, GREY);
       const page = Math.floor(this.invIndex / (INV_ROWS * 2));
       items.slice(page * INV_ROWS * 2, (page + 1) * INV_ROWS * 2).forEach((obj, i) => {
