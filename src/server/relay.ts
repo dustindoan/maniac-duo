@@ -48,6 +48,11 @@ export class Relay {
     this.pending.push([player, cmd]);
   }
 
+  /** Pass a player's world fingerprint to everyone else in the game. */
+  shareHash(player: number, tick: number, hash: string) {
+    for (const p of this.peers) if (p.player !== player) p.send({ type: 'hash', player, tick, hash });
+  }
+
   /** One tick: commands stamped now apply before the engine's next frame on every client. */
   advance() {
     this.tick++;

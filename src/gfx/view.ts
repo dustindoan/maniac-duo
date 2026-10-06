@@ -4,9 +4,10 @@
 // cutscene, a player's cut-away), it fills the screen in the original arrangement: dialogue, the
 // whole 224x128 room, then each player's status line. Indexed NES colours.
 
-import type { LocalObj } from '../engine/engine';
+import type { Actor } from '../engine/actor';
+import type { Engine, LocalObj } from '../engine/engine';
 import { VIEW_W } from '../engine/engine';
-import type { Session } from '../engine/session';
+import { MEANWHILE, type Session } from '../engine/session';
 import type { Rom, Room } from '../rom/rom';
 import { type Background, type Composite, type Surface, NES_BLACK, applyObject, drawBackground, drawCostume, roomPatterns, surface } from './nes';
 
@@ -16,6 +17,8 @@ export const FRAME_H = 240;
 /** The room as the NES shows it: 224px between black borders, 128 rows. */
 export const BORDER = (FRAME_W - VIEW_W) / 2;
 export const SCENE_H = 128;
+/** How far above the kid's feet the flashlight beam is centred, in pixels. */
+const BEAM_ABOVE_FEET = 24;
 /** Split screen: each player's half, all scene, and the bar between the two. */
 export const HALF_H = 118;
 export const GAP = 4;
@@ -99,6 +102,18 @@ export class Font {
   }
 }
 
+/** '^' is the NES font's ellipsis. */
+const MEANWHILE_TEXT = 'Meanwhile^';
+
+/** NES-style fade: every colour drops `steps` brightness levels (of four), towards black. */
+export function fade(dst: Surface, steps: number) {
+  const px = dst.px;
+  for (let i = 0; i < px.length; i++) {
+    const c = px[i];
+    px[i] = c >> 4 >= steps ? c - (steps << 4) : NES_BLACK;
+  }
+}
+
 /** Wrap text to lines of at most `cols` characters, honouring explicit newlines. */
 export function wrap(text: string, cols = 32): string[] {
   const out: string[] = [];
@@ -121,6 +136,8 @@ export class ViewRenderer {
   private patterns = new Map<number, Uint8Array>();
   private bgCache = new Map<string, Background>();
   font: Font;
+  /** The last split-screen picture, for the fade into a "Meanwhile..." card. */
+  private lastSplit: Uint8Array | null = null;
 
   constructor(private rom: Rom) {
     this.font = new Font(rom);
@@ -140,8 +157,17 @@ export class ViewRenderer {
     return bg;
   }
 
-  /** Draw the whole frame; `status` gives each player's status line. Returns what each player sees. */
-  drawFrame(s: Session, dst: Surface, status: (player: number) => string): View[] {
+  /**
+   * Draw the whole frame; `status` gives each player's status line, and `viewers` are the players
+   * watching this screen (they're told "Meanwhile..." only if none of them is in the scene).
+   * Returns what each player sees.
+   */
+  drawFrame(s: Session, dst: Surface, status: (player: number) => string, viewers?: number[]): View[] {
+    return s.meanwhile > 0 ? this.drawMeanwhile(s, dst, status, viewers) : this.drawWorld(s, dst, status);
+  }
+
+  /** Both halves, or the one scene everyone watches. */
+  private drawWorld(s: Session, dst: Surface, status: (player: number) => string): View[] {
     dst.px.fill(NES_BLACK);
     const players = s.engine.players.map((_, i) => i + 1);
     if (s.shared() !== null) {
@@ -164,7 +190,35 @@ export class ViewRenderer {
       return { ...scene, shared: false, area, statusY };
     });
     for (let y = HALF_H; y < HALF_H + GAP; y++) dst.px.fill(BAR, y * dst.w, (y + 1) * dst.w);
+    (this.lastSplit ??= new Uint8Array(dst.px.length)).set(dst.px);
     return views;
+  }
+
+  /**
+   * The card before a scene everyone watches: the split screen fades out, "Meanwhile..." holds,
+   * and the scene fades in. The world is paused throughout (Session.meanwhile counts it down).
+   */
+  private drawMeanwhile(s: Session, dst: Surface, status: (player: number) => string, viewers = s.engine.players.map((_, i) => i + 1)): View[] {
+    const left = s.meanwhile;
+    const total = 2 * MEANWHILE.fade + s.card.hold;
+    const away = viewers.every((p) => !s.card.present[p - 1]);
+    let views: View[];
+    if (left <= MEANWHILE.fade) {
+      // Fading in: the scene, a step brighter each frame.
+      views = this.drawWorld(s, dst, status);
+      fade(dst, left);
+    } else {
+      dst.px.fill(NES_BLACK);
+      const out = total - left + 1;
+      if (out <= MEANWHILE.fade && this.lastSplit) {
+        dst.px.set(this.lastSplit);
+        fade(dst, out);
+      } else if (away) this.font.draw(dst, MEANWHILE_TEXT, (FRAME_W - MEANWHILE_TEXT.length * 8) >> 1, (FRAME_H - LINE) >> 1, WHITE);
+      const area = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
+      views = s.engine.players.map((_, i) => ({ shared: true, room: 0, area, scene: { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, scrollX: 0, scrollY: 0, statusY: SHARED_STATUS_Y + i * (LINE + 4), actors: [] }));
+    }
+    // Nobody can click or act until the scene is up.
+    return views.map((v) => ({ ...v, shared: true }));
   }
 
   /** The last `lines` lines of dialogue, from `top`. */
@@ -187,6 +241,20 @@ export class ViewRenderer {
     return Math.max(0, Math.min(spare, kid.y * 2 + LINE - HALF_H));
   }
 
+  /**
+   * The flashlight's beam, in room pixels. The original centres it on the cursor; with no cursor
+   * here it lights the holder's chest height, on the same 8x2 pixel grid, kept inside the room.
+   */
+  private beam(e: Engine, kid: Actor, roomW: number) {
+    const w = e.flashlight.xStrips * 8;
+    const h = e.flashlight.yStrips * 8;
+    const cx = kid.x * 8;
+    const cy = (kid.y - kid.elevation) * 2 - BEAM_ABOVE_FEET;
+    const x0 = Math.max(0, Math.min(roomW - w, cx - (w >> 1)));
+    const y0 = Math.max(0, Math.min(SCENE_H - h, (cy - (h >> 1)) & ~1));
+    return { x0, y0, x1: x0 + w, y1: y0 + h };
+  }
+
   /** Draw the room player `p` is looking at into `scene`, from room row `scrollY`. */
   private drawScene(s: Session, p: number, dst: Surface, scene: Rect, scrollY: number): Omit<View, 'shared' | 'area' | 'statusY'> {
     const e = s.engine;
@@ -201,7 +269,11 @@ export class ViewRenderer {
     view.scrollX = scrollX;
     const shown = (rx: number, ry: number) => rx >= 0 && rx < roomW && ry >= 0 && ry < SCENE_H && rx >= scrollX && rx < scrollX + scene.w && ry >= scrollY && ry < scrollY + scene.h;
     const at = (rx: number, ry: number) => (scene.y + ry - scrollY) * dst.w + scene.x + rx - scrollX;
-    for (let ry = scrollY; ry < scrollY + scene.h; ry++) for (let rx = scrollX; rx < scrollX + scene.w; rx++) if (shown(rx, ry)) dst.px[at(rx, ry)] = bg.surface.px[ry * roomW + rx];
+    // In the dark the NES draws no room at all, except what the flashlight's beam shows.
+    const holder = lights ? 0 : s.flashlightHolder(p);
+    const beam = lights ? null : holder ? this.beam(e, e.actors[holder], roomW) : { x0: 0, y0: 0, x1: 0, y1: 0 };
+    const lit = (rx: number, ry: number) => !beam || (rx >= beam.x0 && rx < beam.x1 && ry >= beam.y0 && ry < beam.y1);
+    for (let ry = scrollY; ry < scrollY + scene.h; ry++) for (let rx = scrollX; rx < scrollX + scene.w; rx++) if (shown(rx, ry) && lit(rx, ry)) dst.px[at(rx, ry)] = bg.surface.px[ry * roomW + rx];
     // Actors, back to front. Foreground tiles hide an actor only when its walk box has a mask
     // (ScummVM drawActorCostume's zbuf): a kid on the path in front of the fence is drawn whole, and
     // only one standing behind it is hidden.

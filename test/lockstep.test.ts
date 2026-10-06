@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { Driver } from '../src/engine/driver';
 import { Lockstep, stateHash } from '../src/engine/lockstep';
 import { runRoute } from '../src/engine/route';
-import { Session } from '../src/engine/session';
+import { type Command, Session } from '../src/engine/session';
 import { haveRom, rom } from './rom-fixture';
 
 describe.skipIf(!haveRom)('lockstep', () => {
@@ -21,6 +21,7 @@ describe.skipIf(!haveRom)('lockstep', () => {
       expect(stateHash(replica.session), `tick ${t}`).toBe(hashes.get(t)!);
     }
     expect(replica.tick).toBe(live.s.frame);
+    expect(replica.errors).toEqual([]);
   });
 
   test('a different seed gives a different world (codes are randomized at boot)', () => {
@@ -31,5 +32,28 @@ describe.skipIf(!haveRom)('lockstep', () => {
       b.step();
     }
     expect(stateHash(a)).not.toBe(stateHash(b));
+  });
+
+  test("a command the engine throws on doesn't stop the game, now or on replay", () => {
+    const opts = { kids: ['bernard', 'michael'] as ('bernard' | 'michael')[], skipIntro: true, seed: 3 };
+    const log: [number, Command][] = [
+      [5, { type: 'sentence', player: 1, verb: 13, a: 9999 }],
+      [6, { type: 'walk', player: 2, x: 100, y: 120 }],
+    ];
+    const boom = (ls: Lockstep) => {
+      const real = ls.session.engine.sentence.bind(ls.session.engine);
+      ls.session.engine.sentence = (p, verb, a, b) => {
+        if (a === 9999) throw new Error('boom');
+        return real(p, verb, a, b);
+      };
+      return ls;
+    };
+    const a = boom(new Lockstep(rom(), opts));
+    const b = boom(new Lockstep(rom(), opts));
+    a.replay(log, 300);
+    b.replay(log, 300);
+    expect(a.tick).toBe(300);
+    expect(a.errors.map((x) => x.tick)).toEqual([5]);
+    expect(stateHash(b.session)).toBe(stateHash(a.session));
   });
 });

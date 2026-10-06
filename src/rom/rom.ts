@@ -87,6 +87,8 @@ export interface Rom {
   objectFlags: Uint8Array;
   charset: Uint8Array;
   prepositions: string[];
+  /** Sound and music resources for the NES sound driver: channel, priority, data. */
+  sounds: (Uint8Array | null)[];
 }
 
 const u16 = (b: Uint8Array, o: number) => b[o] | (b[o + 1] << 8);
@@ -297,5 +299,6 @@ export function loadRom(file: Uint8Array): Rom {
     objectFlags: slice(prg, T.globdata[0])!,
     charset: slice(prg, T.charset[0])!,
     prepositions,
+    sounds: T.sounds.map((e) => slice(prg, e)),
   };
 }

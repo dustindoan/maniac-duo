@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Driver } from '../src/engine/driver';
 import { runRoute } from '../src/engine/route';
 import { Session } from '../src/engine/session';
-import { compose, drawBackground, drawCostume, surface } from '../src/gfx/nes';
+import { NES_BLACK, compose, drawBackground, drawCostume, surface } from '../src/gfx/nes';
 import { FRAME_H, FRAME_W, SCENE_H, ViewRenderer } from '../src/gfx/view';
 import { haveRom, rom } from './rom-fixture';
 
@@ -83,5 +83,49 @@ describe.skipIf(!haveRom)('view', () => {
     expect(r).toMatchObject({ room: 44, mask: 1 });
     expect(r.overlap).toBeGreaterThan(0);
     expect(r.hidden).toBe(r.overlap);
+  });
+
+  test('in the dark, only the flashlight beam shows the room', () => {
+    const d = new Driver(new Session(rom(), { kids: ['bernard', 'michael'], skipIntro: true }));
+    d.idle(1);
+    const e = d.e;
+    const kid = e.actors[e.egoOf(1)];
+    const room = e.loadedRoom(kid.room)!.room;
+    const roomW = room.width * 8;
+    // A room pixel shows: not black, and not part of a person (they show in the dark too).
+    const isRoom = ({ view, at }: ReturnType<typeof draw>, x: number, y: number) =>
+      !view.actors.some((a) => x >= a.x0 && x <= a.x1 && y >= a.y0 && y <= a.y1) && at(x, y) !== undefined && at(x, y) !== NES_BLACK;
+    // Where the beam centres: the holder's chest height.
+    const near = { x: kid.x * 8, y: kid.y * 2 - 24 };
+
+    // Pitch dark: nothing of the room shows (script 55 sets the lights to 0).
+    e.setCtxVar(1, 12, 0);
+    let shot = draw(d);
+    let shown = 0;
+    for (let y = 0; y < SCENE_H; y++) for (let x = 0; x < roomW; x++) if (isRoom(shot, x, y)) shown++;
+    expect(shown).toBe(0);
+
+    // Flashlight on and held (lights 12): a 48x32 beam around the holder, dark beyond it.
+    e.setCtxVar(1, 12, 12);
+    e.setOwnerOf(84, kid.id);
+    shot = draw(d);
+    let inBeam = 0;
+    let outside = 0;
+    for (let y = 0; y < SCENE_H; y++)
+      for (let x = 0; x < roomW; x++) {
+        if (!isRoom(shot, x, y)) continue;
+        if (Math.abs(x - near.x) <= 24 && Math.abs(y - near.y) <= 16) inBeam++;
+        else outside++;
+      }
+    expect(inBeam).toBeGreaterThan(100);
+    expect(outside).toBe(0);
+
+    // Someone else's kid holding it in another room lights nothing here.
+    e.setOwnerOf(84, e.egoOf(2));
+    e.actors[e.egoOf(2)].room = 0;
+    shot = draw(d);
+    shown = 0;
+    for (let y = 0; y < SCENE_H; y++) for (let x = 0; x < roomW; x++) if (isRoom(shot, x, y)) shown++;
+    expect(shown).toBe(0);
   });
 });

@@ -17,12 +17,12 @@ several rooms simultaneously. Puzzles, cutscenes and endings are the original on
 - **Not a ROM source.** Bring your own *Maniac Mansion (USA)* NES dump (PRG CRC-32 `0d9f5bd1`).
   Nothing derived from it is committed, uploaded, or stored on the server; `rom/` is gitignored.
 - **Not an emulator.** It does not run the NES CPU; it interprets the game's SCUMM bytecode.
-- **No sound yet.** Sound and music are tracked for timing (scripts wait on them) but not played.
 - **Only USA.** Other regional ROMs have different resource tables and are rejected.
 
 ## Owns
 
-- The engine: ROM reader, bytecode decoder, interpreter, multi-room world, NES renderer.
+- The engine: ROM reader, bytecode decoder, interpreter, multi-room world, NES renderer, NES sound
+  driver and sound chip.
 - The verb system: which verbs to offer for what you touch (`src/verbs`).
 - The relay server: game ids, seat tokens, the ordered command log (SQLite).
 - The browser client: split or shared screen, D-pad/gamepad controls, inventory overlay.
@@ -40,7 +40,9 @@ POST /api/games            {kids: [kid, kid], romCrc}   -> 201 {game, seats: [{p
 GET  /api/games/:id?token= -> {game, player, online}
 WS   /api/play?token=      server -> welcome {player, game, tick, log, online}
                                      tick {tick, cmds}   presence {online}
+                                     hash {player, tick, hash}   (another player's world fingerprint)
                            client -> cmd {cmd: walk | stop | sentence | skip}
+                                     hash {tick, hash}   (passed on to the other players, unread)
 ```
 
 Kids are `bernard`, `michael`, `wendy`, `jeff`, `syd`, `razor`. A seat token is the whole
@@ -53,6 +55,7 @@ bun tools/route.ts test/route.txt   # play a route file and print every step
 bun tools/disasm.ts script 1 2 4    # disassemble global scripts; `room 1` for room + object scripts
 bun tools/romdump.ts "" 1           # rooms, objects and their verb tables
 bun tools/render.ts 1 44            # room backgrounds and a costume sheet to out/*.png
+bun tools/sound.ts 55 13            # sounds and music to out/sound*.wav
 bun tools/run.ts 3000               # boot headless and log rooms and messages per frame
 ```
 
@@ -85,6 +88,7 @@ http://localhost:8787/?devrom (localhost only), so you skip the file picker.
 | Next suggestion | X, Shift | G / K | B |
 | Items | C, Tab | C / O | Select or Y |
 | Skip cutscene | Esc | Esc | Start |
+| Mute | M | M | |
 
 The status line under your half always says what A will do ("Pull door mat…"; the ellipsis
 means B has more). Mouse and touch work too: click the floor to walk, click a thing for its verbs.
@@ -112,6 +116,7 @@ bunx tsc --noEmit
 | `src/rom` | ROM identification, resource tables, room/object/script/costume parsing |
 | `src/gfx` | NES tiles, object patches, costumes, the NES font, the 4:3 frame (both halves, or one shared scene) |
 | `src/engine` | Bytecode, interpreter (`vm.ts`), world and contexts (`engine.ts`), actors, walk boxes, sessions, lockstep, scripted driving |
+| `src/sound` | The game's sound driver (runs in the engine, decides how long sounds last) and the NES sound chip (`apu.ts`, browser only) |
 | `src/verbs` | Verb affordances and D-pad focus/suggestions |
 | `src/server` | Relay server, SQLite store, protocol |
 | `src/web` | Browser client |
@@ -120,6 +125,6 @@ bunx tsc --noEmit
 
 ## License
 
-GPL-3.0-or-later (see [LICENSE](LICENSE)): the engine follows ScummVM's SCUMM implementation, and
+GPL-3.0-or-later (see [LICENSE](LICENSE)): the engine and sound follow ScummVM's SCUMM implementation and NES player, and
 resource tables come from [gmarty/scumm-nes](https://github.com/gmarty/scumm-nes) (Blue Oak 1.0.0).
 *Maniac Mansion* is © Lucasfilm Games; you need your own copy.

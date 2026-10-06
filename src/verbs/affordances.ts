@@ -88,7 +88,8 @@ export function affordances(e: Engine, player: number, obj: number): Affordance[
     if (handlerOf(hidden) !== handlerOf(shown)) for (const v of verbs) if (handlerOf(v) === handlerOf(hidden)) hide.add(v);
   };
   toggle(VERB.open, VERB.close);
-  toggle(VERB.turnOn, VERB.turnOff);
+  // Turn on/off is not toggled: most switchable things keep "on" somewhere other than their own
+  // state (the room's lights, a variable), so both are offered and the scripts sort it out.
   // Push/Pull with separate scripts usually move something one way and back (door mat, panels).
   if (handlerOf(VERB.push) !== handlerOf(VERB.pull)) toggle(VERB.pull, VERB.push);
   // Doors and the like: going through something closed does nothing, so open it first.

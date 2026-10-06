@@ -2,7 +2,7 @@
 // and applies player commands at frame boundaries. Deterministic given (seed, command log).
 
 import type { Rom } from '../rom/rom';
-import { Engine, V } from './engine';
+import { Engine, NUM_ACTORS, V } from './engine';
 
 /** Kid actor numbers and their selection-screen objects (room 45). */
 export const KIDS = {
@@ -16,6 +16,11 @@ export const KIDS = {
 export type KidName = keyof typeof KIDS;
 
 const SELECT_ROOM = 45;
+/** CURRENT_LIGHTS bits (ScummVM's LIGHTMODE_room_lights_on and LIGHTMODE_flashlight_on). */
+const LIGHTS_ON = 2;
+const FLASHLIGHT_ON = 4;
+/** The flashlight object. */
+const FLASHLIGHT = 84;
 const START_OBJECT = 403;
 
 export type Command =
@@ -23,6 +28,20 @@ export type Command =
   | { type: 'stop'; player: number }
   | { type: 'sentence'; player: number; verb: number; a: number; b?: number }
   | { type: 'skip'; player: number };
+
+/**
+ * The "Meanwhile..." card before a scene everyone watches (after Day of the Tentacle): the split
+ * screen fades to black, the card holds, and the scene fades in. The world waits meanwhile, so
+ * nobody misses the start of the scene. Players whose kid is in the scene just see the fade; if
+ * every kid is, there's no card to hold. In engine frames.
+ */
+export const MEANWHILE = { fade: 4, hold: 18 };
+
+/** The card in progress: how long it holds, and which players' kids are in the scene. */
+export interface Card {
+  hold: number;
+  present: boolean[];
+}
 
 export interface SessionOptions {
   kids: KidName[];
@@ -41,6 +60,12 @@ export class Session {
   frame = 0;
   /** Every command applied, stamped with the tick it applied at (for lockstep logs). */
   recorded: [tick: number, cmd: Command][] = [];
+  /** Frames left of the "Meanwhile..." card; the world is paused while it shows. */
+  meanwhile = 0;
+  card: Card = { hold: 0, present: [] };
+  private wasShared = true;
+  /** Sound-chip writes from the frame the scene began, played once it appears. */
+  private heldSound: number[][] = [];
 
   constructor(
     rom: Rom,
@@ -58,9 +83,29 @@ export class Session {
   /** Advance one engine frame. */
   step() {
     const e = this.engine;
-    this.drivePreGame();
-    e.step();
-    this.frame++;
+    try {
+      if (this.meanwhile > 0) {
+        this.meanwhile--;
+        e.sound.begin();
+        return;
+      }
+      this.drivePreGame();
+      e.step();
+      if (this.heldSound.length) e.sound.out.unshift(...this.heldSound.splice(0));
+      // A scene everyone watches takes over the screen: hold the world for the card.
+      const shared = this.ready && this.shared() !== null;
+      if (shared && !this.wasShared) {
+        const room = this.viewRoom(1);
+        const present = e.players.map((_, i) => e.actors[e.egoOf(i + 1)].room === room);
+        this.card = { hold: present.every(Boolean) ? 0 : MEANWHILE.hold, present };
+        this.meanwhile = 2 * MEANWHILE.fade + this.card.hold;
+        this.heldSound = e.sound.out;
+        e.sound.begin();
+      }
+      this.wasShared = shared;
+    } finally {
+      this.frame++;
+    }
   }
 
   private drivePreGame() {
@@ -95,9 +140,14 @@ export class Session {
       case 'sentence':
         return e.sentence(cmd.player, cmd.verb, cmd.a, cmd.b ?? 0);
       case 'skip': {
-        // Your own cutscene first, then the one everyone is watching.
+        // Your own cutscene first, then the one everyone is watching. During the card, skipping
+        // ends the card, and the scene too if it can be skipped.
         const away = e.cutAway();
-        return e.abortCutscene(cmd.player) || e.abortCutscene(0) || (away > 0 && e.abortCutscene(away));
+        const watched = this.shared();
+        const ctx = [cmd.player, 0, away].find((c) => e.abortCutscene(c));
+        const card = this.meanwhile > 0 && (ctx === undefined || ctx === watched);
+        if (card) this.meanwhile = 0;
+        return ctx !== undefined || card;
       }
     }
   }
@@ -148,6 +198,21 @@ export class Session {
   }
 
   lightsOn(player: number) {
-    return (this.engine.ctxVar(this.viewCtx(player), V.CURRENT_LIGHTS) & 2) !== 0;
+    return (this.lights(player) & LIGHTS_ON) !== 0;
+  }
+
+  /**
+   * Whose flashlight lights a player's dark room: the kid holding it, if it's on and they're in the
+   * room this player sees (script 55 sets the lights this way). 0 when the room is lit or pitch dark.
+   */
+  flashlightHolder(player: number): number {
+    if ((this.lights(player) & (LIGHTS_ON | FLASHLIGHT_ON)) !== FLASHLIGHT_ON) return 0;
+    const e = this.engine;
+    const holder = e.getOwner(FLASHLIGHT);
+    return holder > 0 && holder < NUM_ACTORS && e.actors[holder].room === this.viewRoom(player) ? holder : 0;
+  }
+
+  private lights(player: number) {
+    return this.engine.ctxVar(this.viewCtx(player), V.CURRENT_LIGHTS);
   }
 }

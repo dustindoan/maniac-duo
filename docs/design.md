@@ -34,6 +34,9 @@ your ROM (browser, IndexedDB)            relay server (no ROM)
 The server never runs the game. Each browser runs the same deterministic engine over the same
 command log, so the server only has to order commands. A player who joins later (or reloads)
 replays the log to catch up. `test/lockstep.test.ts` checks the replay reproduces the world exactly.
+Every 60 ticks each client shares a fingerprint of its world through the server, and says so if
+its partner's differs. If the engine ever throws on a command or a frame, every client throws at
+the same point, so play carries on (`Lockstep.errors`) instead of leaving a log nobody can load.
 
 ## Several kids at once: contexts
 
@@ -65,6 +68,11 @@ whatever started them, with these rules:
   A world cutscene freezes everyone; if it moves the camera, it fills the screen too. Anyone can
   skip what everyone is watching. Players whose kid was moved to another room by someone else's
   script (for example, captured into the dungeon) follow their kid once the cutscene is over.
+- **"Meanwhile..."**: when a scene takes over the screen, the world pauses for a moment: the
+  split screen fades to black, and the scene fades in (`Session.meanwhile`). Players whose kid
+  isn't in the scene see "Meanwhile..." on black in between, after Day of the Tentacle; a player
+  whose kid is in it (just caught, say) sees only the fade, and if every kid is, there's no card
+  to hold. Skipping during the card ends it.
 - **Freezes**: a player's freeze (their cutscene, a keypad) also holds the world's scripts, as in
   the original. While a world cutscene runs, a player's freeze of world scripts waits for it to
   end (`Slot.held`): the player can't act meanwhile, so nothing would ever release it.
@@ -73,6 +81,19 @@ whatever started them, with these rules:
 
 The rest follows ScummVM: walk boxes and the box matrix, actor walking in 8x2-pixel steps, costume
 animation, object state bits, inventory, messages and talk timing.
+
+## Sound
+
+`src/sound/driver.ts` is the game's own sound driver (ported from ScummVM's NES player). It runs
+inside the engine, 60 times a second (`delta` steps per engine frame), because scripts wait for
+sounds to finish: how long a sound runs comes from its data, deterministically, on every client.
+Its output is a list of sound-chip register writes per engine frame. The browser feeds those to
+`src/sound/apu.ts`, an NES sound chip (two square waves, a triangle, noise), and queues the
+samples a little ahead of the speakers (`src/web/audio.ts`), nudging playback speed by at most 2%
+so uneven ticks neither stutter nor lag. Nothing the chip does feeds back into the game.
+
+There is one driver, as there was one chip: both players hear every sound and the music, whichever
+room it comes from, and a sound effect mutes the music while it plays, as in the original.
 
 Two NES-specific findings worth knowing:
 
@@ -93,7 +114,9 @@ and only two of them take a second object (Use X with Y, Give X to Y). From that
    plainest name (Pull beats Get; Get and Read have extra rules in the sentence script).
 3. **Toggles show the half that applies.** A closed door offers Open, an open door offers Go to
    and Close, a flat door mat offers Pull, a pulled one offers Push. A closed door doesn't offer
-   Go to at all.
+   Go to at all. Turn on and Turn off are both always offered: most switchable things keep
+   whether they're on somewhere other than their own state (a lamp darkens the room, the
+   flashlight sets a variable), so their state can't tell which half applies.
 4. **An item meets a person: Give. An item meets a thing: Use.** The original scripts work out
    the rest.
 
@@ -109,11 +132,14 @@ Direct control (`src/verbs/focus.ts`, `src/web/player-ui.ts`):
 - **Suggestions**: nearby things you can act on (nearest first, favouring the way you face, with
   pickups first) take turns offering their verbs. The status line shows the current one, and the
   thing is outlined.
-- **A** does what the status line says. **B** shows the next suggestion; with an item in hand,
-  B drops it.
+- **A** does what the status line says. **B** shows the next suggestion. With an item in hand,
+  the suggestions are the things to use it with, so B still steps through them; it drops the
+  item only when there's nothing nearby to use it with (the status line then says "B drops").
 - **Items** opens the overlay over your half. Choosing Use or Give puts the item in hand, and the
   suggestions become "Use key with front door" for nearby things.
 - Mouse and touch: click the floor to walk, click a thing for its verbs.
+- **Go to a person** walks your kid up beside them. The game's scripts do nothing with that
+  sentence, so the engine handles it (`Engine.sentence`).
 
 Suggestions are computed on each client from shared state; only the resulting sentence goes on the
 wire, so they can't desynchronise anything.
@@ -148,9 +174,9 @@ simulate.
 
 ## Not done yet, and known differences
 
-- **Sound and music** are timed but not played. NES APU playback would be its own piece.
-- **Flashlight** darkness and some lighting details are approximate: dark rooms use the dark
-  palette, with no flashlight circle.
+- **Flashlight**: as on the NES, a dark room is black except for people, and the flashlight
+  shows a 48x32 beam of the dimmed room. The original centres the beam on the cursor; with no
+  cursor here, it centres on whoever holds the flashlight, at chest height.
 - **Message display** uses NES text timing; text is shown per room, not in the original
   per-actor colours.
 - **Who does what in a world cutscene** is decided by the context rules above. They hold for the
@@ -163,7 +189,8 @@ simulate.
 
 ## Sources
 
-- ScummVM, `engines/scumm` (GPL-3.0+): interpreter, actors, boxes, NES graphics, costumes.
+- ScummVM, `engines/scumm` (GPL-3.0+): interpreter, actors, boxes, NES graphics, costumes, and
+  the NES sound driver and APU (`players/player_nes.cpp`).
 - gmarty/scumm-nes (Blue Oak 1.0.0): NES resource tables and parsers.
 - segrax/Maniac.Mansion.Disassembly and pditincho/mm-explained: script and engine commentary.
 - thonky.com walkthroughs, for the skeleton of the route; the details came from the scripts.

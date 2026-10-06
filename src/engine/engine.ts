@@ -27,6 +27,7 @@ import {
   startWalkActor,
   walkActor,
 } from './actor';
+import { SoundDriver } from '../sound/driver';
 import { execute } from './vm';
 
 export const NUM_ACTORS = 25;
@@ -34,6 +35,9 @@ export const NUM_SLOTS = 40;
 export const NUM_INVENTORY = 80;
 export const OWNER_ROOM = 0x0f;
 export const SENTENCE_SCRIPT = 2;
+/** Runs whenever a room starts (after its entry script); in Maniac Mansion it picks the music. */
+const ROOM_START_SCRIPT = 5;
+const GO_TO_VERB = 13;
 /** NES MM shows 28 tiles of room (224px) between 2-tile black borders. */
 export const VIEW_W = 224;
 const HALF = VIEW_W / 2;
@@ -182,7 +186,7 @@ export interface PlayerConfig {
 }
 
 export interface EngineEvent {
-  type: 'restart' | 'gameover' | 'sound';
+  type: 'restart' | 'gameover';
   value?: number;
 }
 
@@ -221,9 +225,12 @@ export class Engine {
   rooms = new Map<number, LoadedRoom>();
   objIndex = new Map<number, { def: ObjectDef; room: number }>();
   costumeSet = 0;
+  /** The flashlight beam's size in 8-pixel strips (lights op mode 1; ScummVM's v2 default). */
+  flashlight = { xStrips: 6, yStrips: 4 };
   frame = 0;
   rng: Rng;
-  sounds = new Map<number, number>();
+  /** The game's sound driver: decides how long sounds run, and what the sound chip plays. */
+  sound: SoundDriver;
   events: EngineEvent[] = [];
   verbs = new Map<number, number[]>();
   /** Instruction budget per runAllScripts, to catch runaway loops. */
@@ -236,6 +243,7 @@ export class Engine {
     seed = 1,
   ) {
     this.rng = new Rng(seed);
+    this.sound = new SoundDriver(rom.sounds);
     this.owner = new Uint8Array(rom.objectFlags.length);
     this.state = new Uint8Array(rom.objectFlags.length);
     for (let i = 0; i < rom.objectFlags.length; i++) {
@@ -347,10 +355,9 @@ export class Engine {
     if (delta > 15) delta = 15;
     this.decreaseScriptDelay(delta);
     for (const c of this.ctxs) c.msg.talkDelay = Math.max(0, c.msg.talkDelay - delta);
-    for (const [s, t] of [...this.sounds]) {
-      if (t - delta <= 0) this.sounds.delete(s);
-      else this.sounds.set(s, t - delta);
-    }
+    // The sound driver runs 60 times a second; a frame is `delta` sixtieths.
+    this.sound.begin();
+    for (let i = 0; i < delta; i++) this.sound.tick();
 
     for (const c of this.ctxs) {
       this.switchCtx(c.id);
@@ -674,7 +681,7 @@ export class Engine {
     c.cam.mode = 'normal';
     this.syncActorVisibility();
     this.runEntryScript(room);
-    this.runScript(5, false, false);
+    this.runScript(ROOM_START_SCRIPT, false, false);
   }
 
   private runExitScript(room: number) {
@@ -824,7 +831,18 @@ export class Engine {
     c.cutscene = false;
     if (c.id === 0) {
       // The director only exists for the length of a cutscene; players go back to their kids.
+      const showedElsewhere = !!c.room;
       if (c.room) this.startScene(0);
+      // The NES game ends a cutscene by following the ego back into its room, and starting that
+      // room runs script 5, which swaps a chase theme (Ed's, Edna's) for the kid's own music.
+      // Players never left their rooms here, so run it for each of them.
+      if (showedElsewhere)
+        for (let p = 1; p < this.ctxs.length; p++) {
+          if (!this.ctxs[p].room) continue;
+          this.switchCtx(p);
+          this.runScript(ROOM_START_SCRIPT, false, false);
+        }
+      this.switchCtx(0);
       // Players whose kid was moved by the cutscene (e.g. captured) follow them to the new room.
       for (let p = 1; p < this.ctxs.length; p++) if (this.actors[this.egoOf(p)].room !== this.kidRoomsAtCutscene[p - 1]) this.refollow.add(p);
       // Players' freezes put off by the cutscene (a keypad still open) take hold again.
@@ -1202,19 +1220,22 @@ export class Engine {
     }
   }
 
-  // ---------------------------------------------------------------- sound (timing model only)
+  // ---------------------------------------------------------------- sound
 
   startSound(s: number) {
-    this.sounds.set(s, 60);
-    this.events.push({ type: 'sound', value: s });
+    this.sound.start(s);
   }
 
   stopSound(s: number) {
-    this.sounds.delete(s);
+    this.sound.stop(s);
+  }
+
+  stopAllSounds() {
+    this.sound.stopAll();
   }
 
   isSoundRunning(s: number) {
-    return this.sounds.has(s) ? 1 : 0;
+    return this.sound.status(s);
   }
 
   // ---------------------------------------------------------------- player commands
@@ -1266,6 +1287,8 @@ export class Engine {
   /** Queue a sentence (verb, objectA[, objectB]) for a player's kid. */
   sentence(p: number, verb: number, a: number, b = 0): boolean {
     if (!this.canAct(p)) return false;
+    // "Go to <person>": the game's scripts do nothing with it, so walk up beside them.
+    if (verb === GO_TO_VERB && a > 0 && a < NUM_ACTORS) return this.walkToActor(p, a);
     const prev = this.cur;
     this.switchCtx(p);
     this.ctxs[p].sentences = [];
@@ -1276,6 +1299,15 @@ export class Engine {
     this.doSentence(verb, a, b);
     this.switchCtx(prev);
     return true;
+  }
+
+  /** Walk the player's kid to stand a few steps beside another actor in the same room. */
+  private walkToActor(p: number, actor: number): boolean {
+    const to = this.actors[actor];
+    const ego = this.actors[this.egoOf(p)];
+    if (!to || actor === ego.id || to.room !== ego.room) return false;
+    const side = ego.x <= to.x ? -1 : 1;
+    return this.walk(p, (to.x + side * 3) * 8, to.y * 2);
   }
 
   /** Run an object's verb script directly in a context, as doSentence(..., execute) does. */

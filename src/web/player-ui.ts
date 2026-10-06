@@ -66,7 +66,9 @@ export class PlayerUI {
       return;
     }
     if (this.inventoryOpen || this.menu) {
-      this.lastPad = pad;
+      // Opening an overlay mid-walk stops the kid; the D-pad now moves the overlay's cursor.
+      if (this.lastPad.dx || this.lastPad.dy) this.send({ type: 'stop', player: this.player });
+      this.lastPad = { dx: 0, dy: 0 };
       return;
     }
     const changed = pad.dx !== this.lastPad.dx || pad.dy !== this.lastPad.dy;

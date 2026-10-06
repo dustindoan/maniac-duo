@@ -29,9 +29,11 @@ export type ServerMessage =
   | { type: 'welcome'; player: number; game: GameInfo; tick: number; log: LoggedCommand[]; online: number[] }
   | { type: 'tick'; tick: number; cmds: [player: number, cmd: Command][] }
   | { type: 'presence'; online: number[] }
+  /** Another player's world fingerprint at a tick; yours should match (desync check). */
+  | { type: 'hash'; player: number; tick: number; hash: string }
   | { type: 'error'; message: string };
 
-export type ClientMessage = { type: 'cmd'; cmd: Command } | { type: 'ping' };
+export type ClientMessage = { type: 'cmd'; cmd: Command } | { type: 'hash'; tick: number; hash: string } | { type: 'ping' };
 
 export interface CreateGameRequest {
   kids: KidName[];
@@ -70,4 +72,13 @@ export function parseCreate(raw: unknown): CreateGameRequest | null {
   if (r.kids[0] === r.kids[1]) return null;
   if (typeof r.romCrc !== 'number') return null;
   return { kids: r.kids as KidName[], romCrc: r.romCrc };
+}
+
+/** Validate a client's world fingerprint; the server passes it on without interpreting it. */
+export function parseHash(raw: unknown): { tick: number; hash: string } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.tick !== 'number' || !Number.isInteger(r.tick) || r.tick < 0) return null;
+  if (typeof r.hash !== 'string' || !/^[0-9a-f]{1,16}$/.test(r.hash)) return null;
+  return { tick: r.tick, hash: r.hash };
 }

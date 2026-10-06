@@ -20,4 +20,21 @@ describe.skipIf(!haveRom)('sentences', () => {
     expect(d.room(2)).toBe(1);
     expect(d.log.map((l) => l.text).join(' ')).not.toContain("I can't reach it.");
   });
+
+  test('"Go to <person>" walks up beside them', () => {
+    // The game's scripts ignore Go to on a person, so the engine walks the kid over instead.
+    const d = new Driver(new Session(rom(), { kids: ['bernard', 'michael'], skipIntro: true }));
+    d.idle(1);
+    const e = d.s.engine;
+    const bernard = e.actors[e.egoOf(1)];
+    const michael = e.actors[e.egoOf(2)];
+    expect(d.s.apply({ type: 'walk', player: 2, x: Math.max(0, michael.x - 40) * 8, y: michael.y * 2 })).toBe(true);
+    d.idle(2);
+    expect(bernard.room).toBe(michael.room);
+    expect(Math.abs(bernard.x - michael.x)).toBeGreaterThan(10);
+    expect(d.s.apply({ type: 'sentence', player: 1, verb: VERB_IDS['go to'], a: michael.id })).toBe(true);
+    d.idle(1);
+    expect(Math.abs(bernard.x - michael.x)).toBeLessThanOrEqual(4);
+    expect(Math.abs(bernard.y - michael.y)).toBeLessThanOrEqual(4);
+  });
 });

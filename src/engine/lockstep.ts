@@ -13,12 +13,28 @@ export class Lockstep {
     this.session = new Session(rom, opts);
   }
 
+  /**
+   * What the engine threw, by tick. Every client replays the same log through the same code, so
+   * they all hit the same errors at the same point; carrying on keeps them in step, where stopping
+   * would leave a command in the log that no one could ever replay past.
+   */
+  errors: { tick: number; error: unknown }[] = [];
+
   /** Run tick `t` with its commands. Ticks must be fed in order. */
   advance(t: number, cmds: Command[]) {
     if (t !== this.tick + 1) throw new Error(`lockstep gap: at ${this.tick}, got ${t}`);
-    for (const c of cmds) this.session.apply(c);
-    this.session.step();
+    for (const c of cmds) this.guard(t, () => this.session.apply(c));
+    this.guard(t, () => this.session.step());
     this.tick = t;
+  }
+
+  private guard(tick: number, run: () => void) {
+    try {
+      run();
+    } catch (error) {
+      this.errors.push({ tick, error });
+      console.error(`engine error at tick ${tick}:`, error);
+    }
   }
 
   /** Catch up from a log of [tick, cmd] pairs to `toTick`. */
