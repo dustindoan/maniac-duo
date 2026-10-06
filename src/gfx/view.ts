@@ -1,23 +1,42 @@
-// Renders what one player sees: a 256x152 half-screen made of a two-line text area, the 224px
-// NES room view (between 16px black borders) and a one-line status bar. Indexed NES colours.
+// Renders the picture: one NES screen (256x240), shown at 4:3. Split screen gives each player a half
+// with the original 224px room view, cropped to 118 of its 128 rows to keep their kid in view, with
+// dialogue and status drawn over the scene. When everyone watches one scene (the intro, a world
+// cutscene, a player's cut-away), it fills the screen in the original arrangement: dialogue, the
+// whole 224x128 room, then each player's status line. Indexed NES colours.
 
-import type { Engine, LocalObj } from '../engine/engine';
+import type { LocalObj } from '../engine/engine';
 import { VIEW_W } from '../engine/engine';
 import type { Session } from '../engine/session';
 import type { Rom, Room } from '../rom/rom';
 import { type Background, type Composite, type Surface, NES_BLACK, applyObject, drawBackground, drawCostume, roomPatterns, surface } from './nes';
 
-export const HALF_W = 256;
-export const TEXT_H = 16;
+/** The whole picture. */
+export const FRAME_W = 256;
+export const FRAME_H = 240;
+/** The room as the NES shows it: 224px between black borders, 128 rows. */
+export const BORDER = (FRAME_W - VIEW_W) / 2;
 export const SCENE_H = 128;
-export const STATUS_H = 8;
-export const HALF_H = TEXT_H + SCENE_H + STATUS_H;
-export const BORDER = (HALF_W - VIEW_W) / 2;
+/** Split screen: each player's half, all scene, and the bar between the two. */
+export const HALF_H = 118;
+export const GAP = 4;
+const LINE = 8;
+/** Shared screen: dialogue lines, then the room, then one status line per player. */
+const SHARED_SCENE_Y = 5 * LINE;
+const SHARED_STATUS_Y = SHARED_SCENE_Y + SCENE_H + 2 * LINE;
 
 export const WHITE = 0x30;
 export const GREY = 0x10;
 export const YELLOW = 0x28;
+const BAR = 0x2d;
 
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The pixels drawn for an actor, in room pixels (for clicking on people). */
 export interface ActorBox {
   actor: number;
   x0: number;
@@ -26,11 +45,27 @@ export interface ActorBox {
   y1: number;
 }
 
-export interface HalfView {
+/** What one player sees, and where it is in the frame. */
+export interface View {
+  /** Everyone is watching this one scene full-screen. */
+  shared: boolean;
   room: number;
-  /** Left edge of the visible room area, in room pixels. */
+  /** This player's part of the frame: their half, or all of it when shared. */
+  area: Rect;
+  /** Where the room is drawn; (scrollX, scrollY) is the room pixel at its top-left corner. */
+  scene: Rect;
   scrollX: number;
+  scrollY: number;
+  /** Top of this player's status line. */
+  statusY: number;
   actors: ActorBox[];
+}
+
+/** The room pixel under a frame pixel, if it is in the scene. */
+export function toRoom(v: View, x: number, y: number): { x: number; y: number } | null {
+  const s = v.scene;
+  if (x < s.x || x >= s.x + s.w || y < s.y || y >= s.y + s.h) return null;
+  return { x: x - s.x + v.scrollX, y: y - s.y + v.scrollY };
 }
 
 /** NES font: glyphs are tiles in the base tileset, indexed through the ROM's charset table. */
@@ -105,77 +140,94 @@ export class ViewRenderer {
     return bg;
   }
 
-  /** Draw player `p`'s half into `dst` at vertical offset `top`. */
-  drawHalf(s: Session, p: number, dst: Surface, top: number, status: string): HalfView {
-    const e = s.engine;
-    const roomId = s.viewRoom(p);
-    for (let i = top * dst.w; i < (top + HALF_H) * dst.w; i++) dst.px[i] = NES_BLACK;
-    const view: HalfView = { room: roomId, scrollX: 0, actors: [] };
-
-    const lr = e.loadedRoom(roomId);
-    if (lr) {
-      const lights = s.lightsOn(p);
-      // Already in draw order: later patches win, e.g. a taken key's empty spot over the pulled mat.
-      const objs = e.visibleObjects(roomId);
-      const bg = this.background(lr.room, objs, lights);
-      const cam = this.cameraFor(s, p);
-      const roomW = lr.room.width * 8;
-      const scrollX = roomW <= VIEW_W ? -((VIEW_W - roomW) >> 1) : Math.max(0, Math.min(roomW - VIEW_W, cam - VIEW_W / 2));
-      view.scrollX = scrollX;
-      const sceneTop = top + TEXT_H;
-      for (let y = 0; y < SCENE_H; y++) {
-        for (let x = 0; x < VIEW_W; x++) {
-          const rx = x + scrollX;
-          if (rx < 0 || rx >= roomW) continue;
-          dst.px[(sceneTop + y) * dst.w + BORDER + x] = bg.surface.px[y * bg.surface.w + rx];
-        }
-      }
-      // Actors, back to front, clipped to the scene. Foreground tiles hide an actor only when its
-      // walk box has a mask (ScummVM drawActorCostume's zbuf): a kid on the path in front of the
-      // fence is drawn whole, and only one standing behind it is hidden.
-      const scene: Surface = { w: roomW, h: SCENE_H, px: new Uint8Array(0) };
-      const actors = e.actors.filter((a) => a.id > 0 && a.visible && a.costume && a.room === roomId && a.animId !== 0xffff).sort((a, b) => a.y - b.y);
-      for (const a of actors) {
-        const tmp = surface(64, 96, 0xff);
-        const ax = a.x * 8 - (a.facing === 90 ? 8 : 0);
-        const ay = (a.y - a.elevation) * 2;
-        const behind = !!lr.room.boxes[a.walkbox]?.mask;
-        drawCostume(this.rom, { set: e.costumeSet, costume: a.costume, anim: a.animId, pos: a.animPos, flipped: a.facing === 90, lightsOn: lights }, tmp, 32, 80, null);
-        let bx0 = 99;
-        let by0 = 99;
-        let bx1 = -1;
-        let by1 = -1;
-        for (let y = 0; y < tmp.h; y++)
-          for (let x = 0; x < tmp.w; x++) {
-            const c = tmp.px[y * tmp.w + x];
-            if (c === 0xff) continue;
-            const rx = ax - 32 + x;
-            const ry = ay - 80 + y;
-            if (ry < 0 || ry >= SCENE_H || rx < 0 || rx >= scene.w) continue;
-            if (behind && bg.front[ry * roomW + rx]) continue;
-            const sx = rx - scrollX;
-            if (sx < 0 || sx >= VIEW_W) continue;
-            dst.px[(sceneTop + ry) * dst.w + BORDER + sx] = c;
-            bx0 = Math.min(bx0, x);
-            by0 = Math.min(by0, y);
-            bx1 = Math.max(bx1, x);
-            by1 = Math.max(by1, y);
-          }
-        if (bx1 >= 0) view.actors.push({ actor: a.id, x0: BORDER + ax - 32 + bx0 - scrollX, y0: sceneTop + ay - 80 + by0, x1: BORDER + ax - 32 + bx1 - scrollX, y1: sceneTop + ay - 80 + by1 });
-      }
+  /** Draw the whole frame; `status` gives each player's status line. Returns what each player sees. */
+  drawFrame(s: Session, dst: Surface, status: (player: number) => string): View[] {
+    dst.px.fill(NES_BLACK);
+    const players = s.engine.players.map((_, i) => i + 1);
+    if (s.shared() !== null) {
+      const area = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
+      const scene = this.drawScene(s, 1, dst, { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, 0);
+      this.drawText(dst, s.messagesFor(1), 3, LINE, -1);
+      return players.map((p, i) => {
+        const statusY = SHARED_STATUS_Y + i * (LINE + 4);
+        this.font.draw(dst, status(p).slice(0, 32), 0, statusY, YELLOW);
+        return { ...scene, shared: true, area, statusY };
+      });
     }
-
-    // Dialogue: the most recent two lines of whatever this player can hear.
-    const lines = s.messagesFor(p).flatMap((m) => wrap(m));
-    lines.slice(-2).forEach((l, i) => this.font.draw(dst, l, 0, top + i * 8, WHITE));
-    this.font.draw(dst, status.slice(0, 32), 0, top + TEXT_H + SCENE_H, YELLOW);
-    return view;
+    const views = players.map((p, i) => {
+      const area = { x: 0, y: i * (HALF_H + GAP), w: FRAME_W, h: HALF_H };
+      const scene = this.drawScene(s, p, dst, { x: BORDER, y: area.y, w: VIEW_W, h: HALF_H }, this.cropFor(s, p));
+      // Dialogue over the top of the scene, status over the bottom.
+      this.drawText(dst, s.messagesFor(p), 2, area.y, NES_BLACK);
+      const statusY = area.y + HALF_H - LINE;
+      this.font.draw(dst, status(p).slice(0, 32), 0, statusY, YELLOW, NES_BLACK);
+      return { ...scene, shared: false, area, statusY };
+    });
+    for (let y = HALF_H; y < HALF_H + GAP; y++) dst.px.fill(BAR, y * dst.w, (y + 1) * dst.w);
+    return views;
   }
 
-  private cameraFor(s: Session, p: number) {
-    const e: Engine = s.engine;
-    const sys = e.ctxs[0];
-    if (sys.room && (sys.cutscene || !s.ready)) return sys.cam.cur;
-    return e.ctxs[p].cam.cur;
+  /** The last `lines` lines of dialogue, from `top`. */
+  private drawText(dst: Surface, messages: string[], lines: number, top: number, bg: number) {
+    messages
+      .flatMap((m) => wrap(m))
+      .slice(-lines)
+      .forEach((l, i) => this.font.draw(dst, l, 0, top + i * LINE, WHITE, bg));
+  }
+
+  /**
+   * First room row a split-screen half shows: as far down as the kid's feet need. A half shows all
+   * but ten of the room's rows, which are almost always ceiling or sky.
+   */
+  private cropFor(s: Session, p: number): number {
+    const e = s.engine;
+    const kid = e.actors[e.egoOf(p)];
+    const spare = SCENE_H - HALF_H;
+    if (kid.room !== s.viewRoom(p)) return spare >> 1;
+    return Math.max(0, Math.min(spare, kid.y * 2 + LINE - HALF_H));
+  }
+
+  /** Draw the room player `p` is looking at into `scene`, from room row `scrollY`. */
+  private drawScene(s: Session, p: number, dst: Surface, scene: Rect, scrollY: number): Omit<View, 'shared' | 'area' | 'statusY'> {
+    const e = s.engine;
+    const room = s.viewRoom(p);
+    const view = { room, scene, scrollX: 0, scrollY, actors: [] as ActorBox[] };
+    const lr = e.loadedRoom(room);
+    if (!lr) return view;
+    const lights = s.lightsOn(p);
+    const bg = this.background(lr.room, e.visibleObjects(room), lights);
+    const roomW = lr.room.width * 8;
+    const scrollX = roomW <= scene.w ? -((scene.w - roomW) >> 1) : Math.max(0, Math.min(roomW - scene.w, s.camera(p) - (scene.w >> 1)));
+    view.scrollX = scrollX;
+    const shown = (rx: number, ry: number) => rx >= 0 && rx < roomW && ry >= 0 && ry < SCENE_H && rx >= scrollX && rx < scrollX + scene.w && ry >= scrollY && ry < scrollY + scene.h;
+    const at = (rx: number, ry: number) => (scene.y + ry - scrollY) * dst.w + scene.x + rx - scrollX;
+    for (let ry = scrollY; ry < scrollY + scene.h; ry++) for (let rx = scrollX; rx < scrollX + scene.w; rx++) if (shown(rx, ry)) dst.px[at(rx, ry)] = bg.surface.px[ry * roomW + rx];
+    // Actors, back to front. Foreground tiles hide an actor only when its walk box has a mask
+    // (ScummVM drawActorCostume's zbuf): a kid on the path in front of the fence is drawn whole, and
+    // only one standing behind it is hidden.
+    const actors = e.actors.filter((a) => a.id > 0 && a.visible && a.costume && a.room === room && a.animId !== 0xffff).sort((a, b) => a.y - b.y);
+    for (const a of actors) {
+      const tmp = surface(64, 96, 0xff);
+      const ax = a.x * 8 - (a.facing === 90 ? 8 : 0);
+      const ay = (a.y - a.elevation) * 2;
+      const behind = !!lr.room.boxes[a.walkbox]?.mask;
+      drawCostume(this.rom, { set: e.costumeSet, costume: a.costume, anim: a.animId, pos: a.animPos, flipped: a.facing === 90, lightsOn: lights }, tmp, 32, 80, null);
+      const box = { actor: a.id, x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+      for (let y = 0; y < tmp.h; y++)
+        for (let x = 0; x < tmp.w; x++) {
+          const c = tmp.px[y * tmp.w + x];
+          if (c === 0xff) continue;
+          const rx = ax - 32 + x;
+          const ry = ay - 80 + y;
+          if (!shown(rx, ry) || (behind && bg.front[ry * roomW + rx])) continue;
+          dst.px[at(rx, ry)] = c;
+          box.x0 = Math.min(box.x0, rx);
+          box.y0 = Math.min(box.y0, ry);
+          box.x1 = Math.max(box.x1, rx);
+          box.y1 = Math.max(box.y1, ry);
+        }
+      if (box.x1 >= box.x0) view.actors.push(box);
+    }
+    return view;
   }
 }

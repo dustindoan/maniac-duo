@@ -3,8 +3,8 @@
 
 import type { Engine } from '../engine/engine';
 import type { Command, Session } from '../engine/session';
-import { type HalfView, BORDER, Font, GREY, HALF_H, SCENE_H, STATUS_H, TEXT_H, WHITE, YELLOW } from '../gfx/view';
-import type { Surface } from '../gfx/nes';
+import { type Rect, type View, FRAME_W, Font, GREY, WHITE, YELLOW, toRoom } from '../gfx/view';
+import { NES_BLACK, type Surface } from '../gfx/nes';
 import { type Affordance, VERB, VERB_LABELS, affordances, pairSentence } from '../verbs/affordances';
 import { type Suggestion, type Target, dpadTarget, suggestions, touchable } from '../verbs/focus';
 
@@ -22,6 +22,8 @@ interface Menu {
 }
 
 const INV_ROWS = 5;
+/** The ITEMS button at the right end of the status line. */
+const ITEMS_X = FRAME_W - 7 * 8;
 
 export class PlayerUI {
   /** What A would do, best first; B steps through them. */
@@ -35,9 +37,8 @@ export class PlayerUI {
   private lastPad: Pad = { dx: 0, dy: 0 };
   private padHeldTicks = 0;
   private lastOption = '';
-  /** Where this player's half is drawn, and what was drawn there last frame (for hit testing). */
-  top = 0;
-  view: HalfView | null = null;
+  /** What this player saw last frame, and where (for hit testing and overlays). */
+  view: View | null = null;
 
   constructor(
     public player: number,
@@ -186,17 +187,18 @@ export class PlayerUI {
 
   // ------------------------------------------------------------- mouse / touch
 
-  /** Click at half-local pixel coords. */
+  /** Click at frame pixel coords, inside this player's area. */
   click(x: number, y: number) {
     const e = this.e;
-    if (!e.canAct(this.player) || !this.view) return;
+    const v = this.view;
+    if (!e.canAct(this.player) || !v || v.shared) return;
     if (this.menu) {
       const i = this.menuHit(x, y);
       if (i >= 0) this.choose(this.menu.items[i]);
       else this.menu = null;
       return;
     }
-    if (y >= TEXT_H + SCENE_H && x >= 256 - 7 * 8) {
+    if (y >= v.statusY && y < v.statusY + 8 && x >= ITEMS_X) {
       this.inventoryOpen = !this.inventoryOpen;
       return;
     }
@@ -221,24 +223,25 @@ export class PlayerUI {
       else if (verbs.length > 1) this.menu = { obj: hit, items: verbs, index: 0 };
       return;
     }
-    if (y >= TEXT_H && y < TEXT_H + SCENE_H) {
+    const at = toRoom(v, x, y);
+    if (at) {
       this.inHand = null;
-      this.send({ type: 'walk', player: this.player, x: Math.max(0, x - BORDER + this.view.scrollX), y: y - TEXT_H });
+      this.send({ type: 'walk', player: this.player, x: Math.max(0, at.x), y: at.y });
     }
   }
 
   move(x: number, y: number) {
-    const hit = this.view ? this.hitTest(x, y) : 0;
+    const hit = this.view && !this.view.shared ? this.hitTest(x, y) : 0;
     this.hover = hit ? this.e.nameOf(hit) : '';
   }
 
+  /** The person or thing under a frame pixel, if there's anything to do with it. */
   private hitTest(x: number, y: number): number {
     const v = this.view!;
-    for (const a of v.actors.slice().reverse()) if (a.actor !== this.kid() && x >= a.x0 && x <= a.x1 && y >= a.y0 && y <= a.y1) return a.actor;
-    if (y < TEXT_H || y >= TEXT_H + SCENE_H) return 0;
-    const rx = x - BORDER + v.scrollX;
-    const ry = y - TEXT_H;
-    for (const t of touchable(this.e, v.room)) if (rx >= t.x && rx < t.x + t.w && ry >= t.y && ry < t.y + t.h && affordances(this.e, this.player, t.id).length) return t.id;
+    const at = toRoom(v, x, y);
+    if (!at) return 0;
+    for (const a of v.actors.slice().reverse()) if (a.actor !== this.kid() && at.x >= a.x0 && at.x <= a.x1 && at.y >= a.y0 && at.y <= a.y1) return a.actor;
+    for (const t of touchable(this.e, v.room)) if (at.x >= t.x && at.x < t.x + t.w && at.y >= t.y && at.y < t.y + t.h && affordances(this.e, this.player, t.id).length) return t.id;
     return 0;
   }
 
@@ -247,7 +250,7 @@ export class PlayerUI {
   status(): string {
     const e = this.e;
     const name = e.nameOf(this.kid());
-    if (!e.canAct(this.player)) return e.ctxs[0].cutscene || e.ctxs[this.player].cutscene ? `${name} - START SKIPS` : name;
+    if (!e.canAct(this.player)) return e.ctxs[0].cutscene || e.ctxs[this.player].cutscene || e.cutAway() ? `${name} - START SKIPS` : name;
     if (this.inHand && !this.options.length) return `${VERB_LABELS[this.inHand.verb]} ${e.nameOf(this.inHand.item)}... B drops`;
     if (this.hover) return this.hover;
     const o = this.options[this.optionIndex];
@@ -256,67 +259,76 @@ export class PlayerUI {
     return name;
   }
 
-  /** Overlays for this player's half: focus brackets, inventory, verb menu. */
-  drawOverlay(dst: Surface, font: Font, top: number) {
+  /** Overlays for this player's half: focus brackets, ITEMS, inventory, verb menu. */
+  drawOverlay(dst: Surface, font: Font) {
     const v = this.view;
-    if (!v) return;
-    const sceneTop = top + TEXT_H;
+    if (!v || v.shared) return;
+    const sc = v.scene;
     if (this.focus && !this.overlayOpen && this.e.canAct(this.player)) {
       const f = this.focus;
-      const x0 = BORDER + f.x - v.scrollX;
-      const y0 = sceneTop + Math.max(0, f.y);
+      const x0 = sc.x + f.x - v.scrollX;
+      const y0 = sc.y + Math.max(0, f.y - v.scrollY);
       const x1 = x0 + f.w - 1;
-      const y1 = Math.min(sceneTop + SCENE_H - 1, sceneTop + f.y + f.h - 1);
-      bracket(dst, x0, y0, x1, y1, this.inHand ? YELLOW : WHITE, BORDER, BORDER + 224, sceneTop, sceneTop + SCENE_H);
+      const y1 = Math.min(sc.y + sc.h - 1, sc.y + f.y + f.h - 1 - v.scrollY);
+      bracket(dst, x0, y0, x1, y1, this.inHand ? YELLOW : WHITE, sc.x, sc.x + sc.w, sc.y, sc.y + sc.h);
     }
-    font.draw(dst, ' ITEMS ', 256 - 7 * 8, top + TEXT_H + SCENE_H, this.inventoryOpen ? WHITE : GREY);
+    font.draw(dst, ' ITEMS ', ITEMS_X, v.statusY, this.inventoryOpen ? WHITE : GREY, NES_BLACK);
     if (this.inventoryOpen) {
-      fill(dst, BORDER, sceneTop + 8, 224, INV_ROWS * 10 + 16, 0x0f);
+      const box = this.inventoryBox();
+      fill(dst, box, 0x0f);
       const items = this.items();
-      font.draw(dst, `${this.e.nameOf(this.kid())}'s things`.slice(0, 27), BORDER + 8, sceneTop + 10, YELLOW);
-      if (!items.length) font.draw(dst, '(nothing)', BORDER + 8, sceneTop + 24, GREY);
+      font.draw(dst, `${this.e.nameOf(this.kid())}'s things`.slice(0, 27), box.x + 8, box.y + 2, YELLOW);
+      if (!items.length) font.draw(dst, '(nothing)', box.x + 8, box.y + 16, GREY);
       const page = Math.floor(this.invIndex / (INV_ROWS * 2));
       items.slice(page * INV_ROWS * 2, (page + 1) * INV_ROWS * 2).forEach((obj, i) => {
         const idx = page * INV_ROWS * 2 + i;
         const col = Math.floor(i / INV_ROWS);
         const row = i % INV_ROWS;
         const name = this.e.nameOf(obj).slice(0, 12);
-        font.draw(dst, (idx === this.invIndex ? '-' : ' ') + name, BORDER + 4 + col * 108, sceneTop + 22 + row * 10, idx === this.invIndex ? WHITE : GREY);
+        font.draw(dst, (idx === this.invIndex ? '-' : ' ') + name, box.x + 4 + col * 108, box.y + 14 + row * 10, idx === this.invIndex ? WHITE : GREY);
       });
     }
     if (this.menu) {
       const m = this.menu;
-      const w = 12 * 8;
-      const h = m.items.length * 10 + 6;
-      const x = BORDER + 224 - w - 8;
-      const y = sceneTop + SCENE_H - h - 4;
-      fill(dst, x, y, w, h, 0x0f);
-      m.items.forEach((it, i) => font.draw(dst, (i === m.index ? '-' : ' ') + it.label, x + 2, y + 4 + i * 10, i === m.index ? WHITE : GREY));
+      const box = this.menuBox();
+      fill(dst, box, 0x0f);
+      m.items.forEach((it, i) => font.draw(dst, (i === m.index ? '-' : ' ') + it.label, box.x + 2, box.y + 4 + i * 10, i === m.index ? WHITE : GREY));
     }
   }
 
-  private menuHit(x: number, y: number): number {
-    const m = this.menu!;
+  /** The inventory overlay, across the top of the scene. */
+  private inventoryBox(): Rect {
+    const sc = this.view!.scene;
+    return { x: sc.x, y: sc.y + 8, w: sc.w, h: INV_ROWS * 10 + 16 };
+  }
+
+  /** The verb menu, at the bottom right of the scene above the status line. */
+  private menuBox(): Rect {
+    const v = this.view!;
     const w = 12 * 8;
-    const h = m.items.length * 10 + 6;
-    const mx = BORDER + 224 - w - 8;
-    const my = TEXT_H + SCENE_H - h - 4;
-    if (x < mx || x >= mx + w || y < my || y >= my + h) return -1;
-    const i = Math.floor((y - my - 3) / 10);
-    return i >= 0 && i < m.items.length ? i : -1;
+    const h = this.menu!.items.length * 10 + 6;
+    return { x: v.scene.x + v.scene.w - w - 8, y: v.statusY - h - 2, w, h };
+  }
+
+  private menuHit(x: number, y: number): number {
+    const b = this.menuBox();
+    if (x < b.x || x >= b.x + b.w || y < b.y || y >= b.y + b.h) return -1;
+    const i = Math.floor((y - b.y - 3) / 10);
+    return i >= 0 && i < this.menu!.items.length ? i : -1;
   }
 
   private invHit(x: number, y: number): number {
+    const b = this.inventoryBox();
     const page = Math.floor(this.invIndex / (INV_ROWS * 2));
-    const row = Math.floor((y - TEXT_H - 22) / 10);
-    const col = x - BORDER - 4 >= 108 ? 1 : 0;
-    if (row < 0 || row >= INV_ROWS || x < BORDER) return -1;
+    const row = Math.floor((y - b.y - 14) / 10);
+    const col = x - b.x - 4 >= 108 ? 1 : 0;
+    if (row < 0 || row >= INV_ROWS || x < b.x) return -1;
     const idx = page * INV_ROWS * 2 + col * INV_ROWS + row;
     return idx < this.items().length ? idx : -1;
   }
 }
 
-function fill(dst: Surface, x: number, y: number, w: number, h: number, c: number) {
+function fill(dst: Surface, { x, y, w, h }: Rect, c: number) {
   for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (i >= 0 && j >= 0 && i < dst.w && j < dst.h) dst.px[j * dst.w + i] = c;
 }
 
@@ -336,5 +348,3 @@ function bracket(dst: Surface, x0: number, y0: number, x1: number, y1: number, c
     set(x1, y1 - i);
   }
 }
-
-export { HALF_H, STATUS_H };

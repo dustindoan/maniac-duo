@@ -2,7 +2,7 @@
 import { Lockstep, stateHash } from '../engine/lockstep';
 import type { Command, KidName } from '../engine/session';
 import { surface, toRGBA } from '../gfx/nes';
-import { HALF_H, ViewRenderer } from '../gfx/view';
+import { FRAME_H, FRAME_W, ViewRenderer } from '../gfx/view';
 import { crc32 } from '../rom/crc32';
 import { type Rom, identify, loadRom, stripHeader } from '../rom/rom';
 import type { CreateGameResponse, ServerMessage } from '../server/protocol';
@@ -11,8 +11,6 @@ import { type Button, type Pad, PlayerUI } from './player-ui';
 import { forgetRom, loadStoredRom, storeRom } from './rom-store';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const GAP = 4;
-const H = HALF_H * 2 + GAP;
 
 let rom: Rom | null = null;
 let romCrc = 0;
@@ -75,7 +73,7 @@ class GameView {
   online = new Set<number>([1, 2]);
   /** World fingerprints every 60 ticks: two clients of one game must agree (desync check). */
   hashes = new Map<number, string>();
-  private surf = surface(256, H);
+  private surf = surface(FRAME_W, FRAME_H);
   private ctx: CanvasRenderingContext2D;
   private image: ImageData;
   private keys = new Set<string>();
@@ -89,10 +87,10 @@ class GameView {
     this.renderer = new ViewRenderer(rom!);
     this.uis = [1, 2].map((p) => new PlayerUI(p, () => this.ls.session, controls.send));
     const canvas = $<HTMLCanvasElement>('screen');
-    canvas.width = 256;
-    canvas.height = H;
+    canvas.width = FRAME_W;
+    canvas.height = FRAME_H;
     this.ctx = canvas.getContext('2d')!;
-    this.image = this.ctx.createImageData(256, H);
+    this.image = this.ctx.createImageData(FRAME_W, FRAME_H);
     this.bindInput(canvas);
     requestAnimationFrame(this.frame);
     // Handy in the browser console: maniac.ls.session.engine, maniac.uis[0].options, ...
@@ -111,21 +109,22 @@ class GameView {
   }
 
   private frame = () => {
-    const s = this.ls.session;
-    for (const p of [1, 2]) {
-      const ui = this.uis[p - 1];
-      const top = p === 1 ? 0 : HALF_H + GAP;
-      const name = s.engine.nameOf(s.engine.egoOf(p));
-      const status = this.isLocal(p) ? ui.status() : `${name}${this.online.has(p) ? '' : ' (away)'}`;
-      ui.view = this.renderer.drawHalf(s, p, this.surf, top, status);
-      ui.top = top;
-      if (this.isLocal(p)) ui.drawOverlay(this.surf, this.renderer.font, top);
+    const views = this.renderer.drawFrame(this.ls.session, this.surf, (p) => this.statusOf(p));
+    for (const ui of this.uis) {
+      ui.view = views[ui.player - 1];
+      if (this.isLocal(ui.player)) ui.drawOverlay(this.surf, this.renderer.font);
     }
-    for (let i = HALF_H * 256; i < (HALF_H + GAP) * 256; i++) this.surf.px[i] = 0x2d;
     toRGBA(this.surf, this.image.data);
     this.ctx.putImageData(this.image, 0, 0);
     requestAnimationFrame(this.frame);
   };
+
+  /** A local player's status line says what A does; a remote one's just who they are. */
+  private statusOf(p: number) {
+    if (this.isLocal(p)) return this.uis[p - 1].status();
+    const e = this.ls.session.engine;
+    return `${e.nameOf(e.egoOf(p))}${this.online.has(p) ? '' : ' (away)'}`;
+  }
 
   // ---------------------------------------------------------------- input
 
@@ -201,12 +200,13 @@ class GameView {
     });
     window.addEventListener('keyup', (ev) => this.keys.delete(ev.code));
     window.addEventListener('blur', () => this.keys.clear());
+    // Pointer position in frame pixels, and whose half it's over (nobody's while a scene is shared).
     const locate = (ev: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
-      const x = Math.floor(((ev.clientX - r.left) / r.width) * 256);
-      const y = Math.floor(((ev.clientY - r.top) / r.height) * H);
-      const p = y < HALF_H ? 1 : y >= HALF_H + GAP ? 2 : 0;
-      return { p, x, y: p === 2 ? y - HALF_H - GAP : y };
+      const x = Math.floor(((ev.clientX - r.left) / r.width) * FRAME_W);
+      const y = Math.floor(((ev.clientY - r.top) / r.height) * FRAME_H);
+      const ui = this.uis.find(({ view: v }) => v && !v.shared && y >= v.area.y && y < v.area.y + v.area.h);
+      return { p: ui?.player ?? 0, x, y };
     };
     canvas.addEventListener('pointerdown', (ev) => {
       const { p, x, y } = locate(ev);

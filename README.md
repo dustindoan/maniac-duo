@@ -1,9 +1,10 @@
 # maniac-duo
 
-Two-player NES *Maniac Mansion*. Each player controls one kid; the screen is split top and
-bottom, so both kids can be in different rooms of the mansion at once. Players can be on one
-screen or online, and they don't have to be online at the same time: the mansion only moves while
-someone is playing.
+Two-player NES *Maniac Mansion*. Each player controls one kid; the screen (one NES screen, shown
+at 4:3) is split top and bottom, so both kids can be in different rooms of the mansion at once,
+and cutscenes everyone should see fill the whole screen. Players can be on one screen or online,
+and they don't have to be online at the same time: the mansion only moves while someone is
+playing.
 
 It runs the **original game scripts and graphics from your own ROM** in a small TypeScript
 reimplementation of the SCUMM v1 engine, extended so several kids can be "the current kid" in
@@ -24,7 +25,7 @@ several rooms simultaneously. Puzzles, cutscenes and endings are the original on
 - The engine: ROM reader, bytecode decoder, interpreter, multi-room world, NES renderer.
 - The verb system: which verbs to offer for what you touch (`src/verbs`).
 - The relay server: game ids, seat tokens, the ordered command log (SQLite).
-- The browser client: split screen, D-pad/gamepad controls, inventory overlay.
+- The browser client: split or shared screen, D-pad/gamepad controls, inventory overlay.
 
 ## Calls
 
@@ -109,7 +110,7 @@ bunx tsc --noEmit
 | Path | Holds |
 |---|---|
 | `src/rom` | ROM identification, resource tables, room/object/script/costume parsing |
-| `src/gfx` | NES tiles, object patches, costumes, the NES font, a player's half-screen view |
+| `src/gfx` | NES tiles, object patches, costumes, the NES font, the 4:3 frame (both halves, or one shared scene) |
 | `src/engine` | Bytecode, interpreter (`vm.ts`), world and contexts (`engine.ts`), actors, walk boxes, sessions, lockstep, scripted driving |
 | `src/verbs` | Verb affordances and D-pad focus/suggestions |
 | `src/server` | Relay server, SQLite store, protocol |

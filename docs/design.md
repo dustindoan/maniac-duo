@@ -2,11 +2,15 @@
 
 ## The idea
 
-NES *Maniac Mansion* shows one room on top and the verbs and inventory below. Here the bottom
-half is the second player's room instead. Each half is the original 224-pixel NES room view
-between black borders, so scenes render exactly as before; two of them stack into roughly one
-NES screen. Each player controls exactly one kid. Dave is still in the game, but nobody controls
-him: he stays where the intro leaves him.
+NES *Maniac Mansion* shows one room on top and the verbs and inventory below. Here the picture is
+still one NES screen (256x240, shown at 4:3), but its bottom half is the second player's room.
+Each half is the original 224-pixel room view between black borders, showing 118 of the room's
+128 rows: it follows the kid's feet, so what's left out is almost always ceiling or sky. The
+dialogue and status lines are drawn over the scene. When everyone has to watch the same thing (the
+intro, a world cutscene, or a player's cutscene that cuts away to another room), the split goes
+away and that scene fills the screen in the original arrangement: dialogue, the whole room, then
+each player's status line. Each player controls exactly one kid. Dave is still in the game, but
+nobody controls him: he stays where the intro leaves him.
 
 Everything the game does comes from the ROM: rooms, objects, costumes, the font, and every script.
 The engine is a TypeScript reimplementation of the SCUMM v1 interpreter (as used by the NES game),
@@ -22,7 +26,7 @@ your ROM (browser, IndexedDB)            relay server (no ROM)
         |                                  |  ordered command log (SQLite)
   src/engine  Session <-- commands per tick -+
         |   deterministic: (seed, log) => world
-  src/gfx  draw each player's half
+  src/gfx  draw each player's half, or the scene everyone watches
         |
   src/web  canvas, controls, inventory overlay
 ```
@@ -55,9 +59,15 @@ whatever started them, with these rules:
 - **A room is loaded while anyone (either player or the director) is in it.** Actors walk and
   animate in every loaded room. Entry scripts run for each player who enters; exit scripts run
   when the last viewer leaves.
-- **Cutscenes**: a player's own cutscene freezes that player and moves only their camera. A world
-  cutscene freezes everyone; if it moves the camera, both players watch it. Afterwards, players
-  whose kid it moved (for example, captured into the dungeon) follow their kid.
+- **Cutscenes**: a player's own cutscene freezes that player and plays in their half. If it cuts
+  away to a room their kid isn't in (Dr. Fred and Sandy in the lab, the Meteor Police on the
+  radio), it is a story scene: it fills the screen and the other players wait (`Engine.cutAway`).
+  A world cutscene freezes everyone; if it moves the camera, it fills the screen too. Anyone can
+  skip what everyone is watching. Players whose kid was moved to another room by someone else's
+  script (for example, captured into the dungeon) follow their kid once the cutscene is over.
+- **Freezes**: a player's freeze (their cutscene, a keypad) also holds the world's scripts, as in
+  the original. While a world cutscene runs, a player's freeze of world scripts waits for it to
+  end (`Slot.held`): the player can't act meanwhile, so nothing would ever release it.
 - **Distances between different rooms are infinite.** With several rooms live, "nearest kid" must
   never find someone in another room.
 

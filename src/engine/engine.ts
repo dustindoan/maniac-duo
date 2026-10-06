@@ -1219,11 +1219,23 @@ export class Engine {
 
   // ---------------------------------------------------------------- player commands
 
+  /**
+   * A player whose own cutscene has cut away to a room their kid isn't in ("Meanwhile, in the
+   * lab..."), or 0. Everyone watches it, so the other players wait until it ends.
+   */
+  cutAway(): number {
+    for (let p = 1; p < this.ctxs.length; p++) {
+      const c = this.ctxs[p];
+      if (c.cutscene && c.room && c.room !== this.actors[this.egoOf(p)].room) return p;
+    }
+    return 0;
+  }
+
   /** Can this player act right now? */
   canAct(p: number): boolean {
     const c = this.ctxs[p];
     const sys = this.ctxs[0];
-    if (!c.userPut || c.cutscene || sys.cutscene || !sys.userPut || c.room === 0) return false;
+    if (!c.userPut || c.cutscene || sys.cutscene || !sys.userPut || c.room === 0 || this.cutAway()) return false;
     // Cursor state 3 is a full-screen interface (keypads, phone): the kid isn't in that "room".
     return this.actors[this.egoOf(p)].room === c.room || this.ctxVar(p, V.CURSORSTATE) === 3;
   }

@@ -95,8 +95,9 @@ export class Session {
       case 'sentence':
         return e.sentence(cmd.player, cmd.verb, cmd.a, cmd.b ?? 0);
       case 'skip': {
-        const own = e.abortCutscene(cmd.player);
-        return own || e.abortCutscene(0);
+        // Your own cutscene first, then the one everyone is watching.
+        const away = e.cutAway();
+        return e.abortCutscene(cmd.player) || e.abortCutscene(0) || (away > 0 && e.abortCutscene(away));
       }
     }
   }
@@ -106,31 +107,47 @@ export class Session {
     return e.actors[e.egoOf(player)].room;
   }
 
-  /** Text currently shown to a player (their own messages plus anything said in their room). */
+  /** Text currently shown to a player (narration from what they're watching, plus anything said in that room). */
   messagesFor(player: number): string[] {
     const e = this.engine;
+    const watching = this.viewCtx(player);
     const room = this.viewRoom(player);
     const out: string[] = [];
     for (const c of e.ctxs) {
       const m = c.msg;
       if (!m.text) continue;
-      if (m.room === room || (m.actor === 0xff && (c.id === 0 || c.id === player))) out.push((m.actor < 0x80 ? e.nameOf(m.actor) + ': ' : '') + m.text);
+      if (m.room === room || (m.actor === 0xff && (c.id === 0 || c.id === watching))) out.push((m.actor < 0x80 ? e.nameOf(m.actor) + ': ' : '') + m.text);
     }
     return out;
   }
 
-  /** The room a player is looking at (the director's room during a broadcast cutscene). */
-  viewRoom(player: number) {
+  /**
+   * The context everyone watches full-screen, or null while each player has their own view: the
+   * director during the intro and world cutscenes, or a player whose cutscene cut away elsewhere.
+   */
+  shared(): number | null {
     const e = this.engine;
     const sys = e.ctxs[0];
-    if (sys.room && (sys.cutscene || !this.ready)) return sys.room;
-    return e.ctxs[player].room;
+    if (sys.room && (sys.cutscene || !this.ready)) return 0;
+    return e.cutAway() || null;
+  }
+
+  /** The context whose room, camera and lights a player sees. */
+  viewCtx(player: number): number {
+    return this.shared() ?? player;
+  }
+
+  /** The room a player is looking at. */
+  viewRoom(player: number) {
+    return this.engine.ctxs[this.viewCtx(player)].room;
+  }
+
+  /** Centre of a player's view, in room pixels. */
+  camera(player: number) {
+    return this.engine.ctxs[this.viewCtx(player)].cam.cur;
   }
 
   lightsOn(player: number) {
-    const e = this.engine;
-    const sys = e.ctxs[0];
-    const id = sys.room && (sys.cutscene || !this.ready) ? 0 : player;
-    return (e.ctxVar(id, V.CURRENT_LIGHTS) & 2) !== 0;
+    return (this.engine.ctxVar(this.viewCtx(player), V.CURRENT_LIGHTS) & 2) !== 0;
   }
 }
