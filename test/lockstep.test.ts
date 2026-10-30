@@ -4,11 +4,12 @@ import { Driver } from '../src/engine/driver';
 import { Lockstep, stateHash } from '../src/engine/lockstep';
 import { runRoute } from '../src/engine/route';
 import { type Command, Session } from '../src/engine/session';
+import { RULES } from '../src/story';
 import { haveRom, rom } from './rom-fixture';
 
 describe.skipIf(!haveRom)('lockstep', () => {
   test('replaying the command log reproduces the game exactly', () => {
-    const opts = { kids: ['bernard', 'michael'] as const, skipIntro: true, seed: 7 };
+    const opts = { kids: ['bernard', 'michael'] as const, skipIntro: true, seed: 7, rules: RULES };
     const live = new Driver(new Session(rom(), { ...opts, kids: [...opts.kids] }));
     const hashes = new Map<number, string>();
     runRoute(live, readFileSync('test/route.txt', 'utf8'), () => hashes.set(live.s.frame, stateHash(live.s)));

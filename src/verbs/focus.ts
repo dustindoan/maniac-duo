@@ -4,7 +4,7 @@
 import { type Actor, adjustXYToBeInBox, walkRoute } from '../engine/actor';
 import { BOX_INVISIBLE, BOX_LOCKED, nextBox } from '../engine/boxes';
 import { type Engine, NUM_ACTORS } from '../engine/engine';
-import { VERB, VERB_LABELS, affordances, pairSentence } from './affordances';
+import { VERB, VERB_LABELS, affordances, pairSentence, takesGifts } from './affordances';
 
 export interface Target {
   id: number;
@@ -41,7 +41,7 @@ export function touchable(e: Engine, room: number): Target[] {
 }
 
 /** Everything the player can act on: touchable objects with something to do, and (when holding
- * something to give) other people. */
+ * something to give) other people who can take it. */
 export function interactables(e: Engine, p: number, includePeople = false): Target[] {
   const room = e.ctxs[p].room;
   const kid = e.egoOf(p);
@@ -50,7 +50,7 @@ export function interactables(e: Engine, p: number, includePeople = false): Targ
     .map((t) => ({ ...t, name: t.name || 'this way' }));
   if (!includePeople) return objs;
   const people = e.actors
-    .filter((a) => a.id > 0 && a.id < NUM_ACTORS && a.id !== kid && a.room === room && a.visible && a.costume && e.nameOf(a.id))
+    .filter((a) => a.id > 0 && a.id < NUM_ACTORS && a.id !== kid && a.room === room && a.visible && a.costume && e.nameOf(a.id) && takesGifts(e, a.id))
     .map((a) => ({ id: a.id, name: e.nameOf(a.id), x: a.x * 8 - 12, y: a.y * 2 - 48, w: 24, h: 48 }));
   return [...objs, ...people];
 }

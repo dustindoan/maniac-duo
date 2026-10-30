@@ -13,6 +13,8 @@ export interface GameInfo {
   seed: number;
   /** CRC-32 of the PRG data, so both players run the same ROM. */
   romCrc: number;
+  /** Our additions to the story this game has (src/story); games keep the rules they began with. */
+  rules: number;
   createdAt: number;
 }
 

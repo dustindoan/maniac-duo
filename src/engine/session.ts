@@ -2,6 +2,7 @@
 // and applies player commands at frame boundaries. Deterministic given (seed, command log).
 
 import type { Rom } from '../rom/rom';
+import { storyFor } from '../story';
 import { Engine, NUM_ACTORS, V } from './engine';
 
 /** Kid actor numbers and their selection-screen objects (room 45). */
@@ -48,6 +49,8 @@ export interface SessionOptions {
   seed?: number;
   /** Skip the title sequence and intro cutscenes (useful for tests). */
   skipIntro?: boolean;
+  /** Which of our additions to the story the game has (src/story); 0 or absent is the original. */
+  rules?: number;
 }
 
 export class Session {
@@ -84,6 +87,7 @@ export class Session {
       this.rom,
       this.opts.kids.map((k) => ({ kid: KIDS[k].actor })),
       seed,
+      storyFor(this.opts.rules ?? 0),
     );
     e.boot();
     return e;
@@ -156,6 +160,7 @@ export class Session {
       this.ready = true;
       // The original starts you as Dave, with his theme playing; here the players' kids take over.
       e.playKidTheme(1);
+      if (e.story) e.runScript(e.story.start, false, false, 0);
     }
   }
 

@@ -114,6 +114,14 @@ export function affordances(e: Engine, player: number, obj: number): Affordance[
   return verbs.map((v) => ({ verb: v, label: VERB_LABELS[v], needsTarget: inInventory && (v === VERB.use || v === VERB.give) }));
 }
 
+/**
+ * Can this person be given things? Kids are actors 1-7; one nobody plays (Dave) would keep
+ * whatever he's given for good.
+ */
+export function takesGifts(e: Engine, actor: number): boolean {
+  return actor > 7 || e.players.some((p) => p.kid === actor);
+}
+
 /** The sentence a drag of `item` onto `target` means. */
 export function pairSentence(e: Engine, item: number, target: number): { verb: number; a: number; b: number } {
   if (target < NUM_ACTORS) return { verb: VERB.give, a: item, b: target };

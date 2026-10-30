@@ -20,11 +20,14 @@ export class Store {
         game_id TEXT NOT NULL, seq INTEGER NOT NULL, tick INTEGER NOT NULL, player INTEGER NOT NULL, cmd TEXT NOT NULL,
         PRIMARY KEY (game_id, seq));
     `);
+    // Games created before rules existed have the original story.
+    const cols = this.db.query('PRAGMA table_info(games)').all() as { name: string }[];
+    if (!cols.some((c) => c.name === 'rules')) this.db.exec('ALTER TABLE games ADD COLUMN rules INTEGER NOT NULL DEFAULT 0');
   }
 
   createGame(game: GameInfo, seats: Seat[]) {
     const tx = this.db.transaction(() => {
-      this.db.query('INSERT INTO games (id, kids, seed, rom_crc, created_at) VALUES (?, ?, ?, ?, ?)').run(game.id, JSON.stringify(game.kids), game.seed, game.romCrc, game.createdAt);
+      this.db.query('INSERT INTO games (id, kids, seed, rom_crc, rules, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(game.id, JSON.stringify(game.kids), game.seed, game.romCrc, game.rules, game.createdAt);
       for (const s of seats) this.db.query('INSERT INTO seats (game_id, player, kid, token) VALUES (?, ?, ?, ?)').run(game.id, s.player, s.kid, s.token);
     });
     tx();
@@ -33,7 +36,7 @@ export class Store {
   game(id: string): (GameInfo & { tick: number }) | null {
     const r = this.db.query('SELECT * FROM games WHERE id = ?').get(id) as Record<string, unknown> | null;
     if (!r) return null;
-    return { id: r.id as string, kids: JSON.parse(r.kids as string) as KidName[], seed: r.seed as number, romCrc: r.rom_crc as number, createdAt: r.created_at as number, tick: r.tick as number };
+    return { id: r.id as string, kids: JSON.parse(r.kids as string) as KidName[], seed: r.seed as number, romCrc: r.rom_crc as number, rules: r.rules as number, createdAt: r.created_at as number, tick: r.tick as number };
   }
 
   seatByToken(token: string): (Seat & { gameId: string }) | null {

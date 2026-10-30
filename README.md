@@ -24,6 +24,9 @@ several rooms simultaneously. Puzzles, cutscenes and endings are the original on
 - The engine: ROM reader, bytecode decoder, interpreter, multi-room world, NES renderer, NES sound
   driver and sound chip.
 - The verb system: which verbs to offer for what you touch (`src/verbs`).
+- Our additions to the story (`src/story`), in the game's own bytecode, versioned per game as
+  *rules*: after the intro Dave goes on ahead and holds the dungeon's loose brick for whoever is
+  caught.
 - The relay server: game ids, seat tokens, the ordered command log (SQLite).
 - The browser client: split or shared screen, D-pad/gamepad controls, inventory overlay.
 
@@ -37,6 +40,7 @@ HTTP and WebSocket, from `src/server/main.ts` (types in `src/server/protocol.ts`
 
 ```
 POST /api/games            {kids: [kid, kid], romCrc}   -> 201 {game, seats: [{player, kid, token}]}
+                           game: {id, kids, seed, romCrc, rules, createdAt}   (rules: see src/story)
 GET  /api/games/:id?token= -> {game, player, online}
 WS   /api/play?token=      server -> welcome {player, game, tick, log, online}
                                      tick {tick, cmds}   presence {online}
@@ -120,6 +124,7 @@ test: Bernard and Michael, each a separate player, beat the game by the Meteor P
 following [test/route.txt](test/route.txt), with every sentence checked to be one the interface
 actually offers. `test/lockstep.test.ts` replays that game from its command log and checks the
 world matches at every step; `test/server.test.ts` runs two real WebSocket clients against the relay.
+`test/dave.test.ts` gets Bernard caught and checks Dave holds the brick for him.
 
 ```bash
 bunx tsc --noEmit
@@ -131,7 +136,8 @@ bunx tsc --noEmit
 |---|---|
 | `src/rom` | ROM identification, resource tables, room/object/script/costume parsing |
 | `src/gfx` | NES tiles, object patches, costumes, the NES font, the 4:3 frame (both halves, or one shared scene) |
-| `src/engine` | Bytecode, interpreter (`vm.ts`), world and contexts (`engine.ts`), actors, walk boxes, sessions, lockstep, scripted driving |
+| `src/engine` | Bytecode and its assembler (`asm.ts`), interpreter (`vm.ts`), world and contexts (`engine.ts`), actors, walk boxes, sessions, lockstep, scripted driving |
+| `src/story` | Our additions to the story, by rules version: Dave and the loose brick |
 | `src/sound` | The game's sound driver (runs in the engine, decides how long sounds last) and the NES sound chip (`apu.ts`, browser only) |
 | `src/verbs` | Verb affordances and D-pad focus/suggestions |
 | `src/server` | Relay server, SQLite store, protocol |

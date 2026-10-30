@@ -33,7 +33,7 @@ export class Relay {
   join(peer: Peer) {
     this.peers.add(peer);
     const game = this.store.game(this.gameId)!;
-    peer.send({ type: 'welcome', player: peer.player, game: { id: game.id, kids: game.kids, seed: game.seed, romCrc: game.romCrc, createdAt: game.createdAt }, tick: this.tick, log: this.store.log(this.gameId), online: this.online() });
+    peer.send({ type: 'welcome', player: peer.player, game: { id: game.id, kids: game.kids, seed: game.seed, romCrc: game.romCrc, rules: game.rules, createdAt: game.createdAt }, tick: this.tick, log: this.store.log(this.gameId), online: this.online() });
     this.broadcast({ type: 'presence', online: this.online() });
     if (!this.timer) this.timer = setInterval(() => this.advance(), this.tickMs);
   }

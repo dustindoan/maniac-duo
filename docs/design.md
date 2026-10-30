@@ -10,7 +10,8 @@ dialogue and status lines are drawn over the scene. When everyone has to watch t
 intro, a world cutscene, or a player's cutscene that cuts away to another room), the split goes
 away and that scene fills the screen in the original arrangement: dialogue, then the whole room,
 with nothing below it. Each player controls exactly one kid. Dave is still in the game, but
-nobody controls him: he stays where the intro leaves him.
+nobody controls him: after the intro he goes on ahead, and waits in the dungeon to hold the loose
+brick for whoever gets caught (see [Our additions to the story](#our-additions-to-the-story)).
 
 Everything the game does comes from the ROM: rooms, objects, costumes, the font, and every script.
 The engine is a TypeScript reimplementation of the SCUMM v1 interpreter (as used by the NES game),
@@ -84,6 +85,39 @@ whatever started them, with these rules:
 The rest follows ScummVM: walk boxes and the box matrix, actor walking in 8x2-pixel steps, costume
 animation, object state bits, inventory, messages and talk timing.
 
+## Our additions to the story
+
+With two kids instead of three, some of the original's puzzles assume a kid to spare. Where that
+makes co-op worse, we add to the story rather than change the original scripts. The additions are
+scripts in the game's own bytecode (`src/story`), written with a small assembler that is the
+decoder in reverse (`src/engine/asm.ts`), so they get cutscenes, skipping, dialogue, voices and
+walking from the same VM as everything else, and `tools/disasm.ts` can print them. The engine
+takes them as a `Story`: extra global scripts (numbered from 200, above the ROM's), a script to
+start when the players take over from the intro, object verbs that run an added script instead of
+the object's own, and which added scripts are NPC behaviour (system context) or exist per player.
+Their state lives in variables 240 and up, which the ROM never uses.
+
+Additions are versioned as **rules**, stored with each game (`src/story/index.ts`). Every client
+replays a game's whole command log, so a game keeps the rules it began with: one started before an
+addition replays, and plays on, without it.
+
+**Rules 1: Dave and the loose brick.** In the original, pushing the dungeon's loose brick opens the
+cell door for three seconds (script 137), and the door won't let whoever pushed it out: it shuts
+instead (door 159 checks Var[214]). So escaping always cost a second kid, who stayed behind, until
+someone found the old rusty key. With two players, one of them was left pushing a brick.
+
+- After the intro's last line, "Ok, let's go rescue Sandy!", Dave walks off toward the house while
+  the players already have control, and is next seen in the dungeon, standing out of the way of
+  the cell (the original even keeps a cell spot for him: script 146).
+- The first time a kid pushes the brick, the door opens and that kid asks Dave to hold it, in a
+  short scene in their half: "Dave! Can you hold this brick in for me?" "Sure. Go find Sandy!"
+  Dave takes over the brick. Skipping the scene leaves him holding it all the same.
+- After that, pushing the brick opens the door at once, and Dave comes over without a word; the
+  kid doesn't have to wait for him.
+- Dave holds the door while either kid is still in the dungeon, or until someone goes through (the
+  door shuts behind them, as in the original); then he goes back to his spot.
+- If Dave isn't in the dungeon, the brick works exactly as the original.
+
 ## Sound
 
 `src/sound/driver.ts` is the game's own sound driver (ported from ScummVM's NES player). It runs
@@ -135,7 +169,8 @@ and only two of them take a second object (Use X with Y, Give X to Y). From that
    whether they're on somewhere other than their own state (a lamp darkens the room, the
    flashlight sets a variable), so their state can't tell which half applies.
 4. **An item meets a person: Give. An item meets a thing: Use.** The original scripts work out
-   the rest.
+   the rest. Dave is never offered as someone to give things to: nobody plays him, so anything he
+   was given would be lost.
 
 Typically one to three verbs remain. Targets are never highlighted while you hold an item, so the
 filtering doesn't give puzzles away.

@@ -5,7 +5,7 @@ import type { Engine } from '../engine/engine';
 import type { Command, Session } from '../engine/session';
 import { type Rect, type View, Font, GREY, WHITE, YELLOW, toRoom } from '../gfx/view';
 import type { Surface } from '../gfx/nes';
-import { type Affordance, VERB, VERB_LABELS, affordances, pairSentence } from '../verbs/affordances';
+import { type Affordance, VERB, VERB_LABELS, affordances, pairSentence, takesGifts } from '../verbs/affordances';
 import { type Suggestion, type Target, dpadTarget, suggestions, touchable } from '../verbs/focus';
 
 export type Button = 'a' | 'b' | 'items' | 'skip';
@@ -233,7 +233,7 @@ export class PlayerUI {
     }
     const hit = this.hitTest(x, y);
     if (hit) {
-      if (this.inHand) {
+      if (this.inHand && takesGifts(e, hit)) {
         const s = pairSentence(e, this.inHand.item, hit);
         this.sentence(s.verb, s.a, s.b);
         this.inHand = null;
