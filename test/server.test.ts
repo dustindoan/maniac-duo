@@ -1,6 +1,11 @@
+import { Database } from 'bun:sqlite';
 import { afterAll, describe, expect, test } from 'bun:test';
+import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createServer } from '../src/server/main';
 import type { CreateGameResponse, ServerMessage } from '../src/server/protocol';
+import { Store } from '../src/server/store';
+import { RULES } from '../src/story';
 
 const { server, relays } = createServer({ port: 0, dbPath: ':memory:', webRoot: '/nonexistent' });
 const base = `http://localhost:${server.port}`;
@@ -38,6 +43,8 @@ describe('relay server', () => {
     await p1.until((m) => m.some((x) => x.type === 'welcome'));
     const welcome = p1.msgs.find((x) => x.type === 'welcome')!;
     expect(welcome.type === 'welcome' && welcome.player).toBe(1);
+    expect(game.rules).toBe(RULES);
+    expect(welcome.type === 'welcome' && welcome.game.rules).toBe(RULES);
 
     p1.ws.send(JSON.stringify({ type: 'cmd', cmd: { type: 'walk', x: 40, y: 100 } }));
     p1.ws.send(JSON.stringify({ type: 'cmd', cmd: { type: 'sentence', verb: 14, a: 55, player: 2 } })); // player is forced to the seat's
@@ -108,5 +115,23 @@ describe('relay server', () => {
     const w = again.msgs.find((x) => x.type === 'welcome')!;
     expect(w.type === 'welcome' && w.tick).toBeGreaterThanOrEqual(3);
     again.ws.close();
+  });
+
+  test('games from before rules existed keep the original story', () => {
+    const path = `${tmpdir()}/maniac-rules-${process.pid}.sqlite`;
+    const old = new Database(path, { create: true });
+    old.exec(`CREATE TABLE games (id TEXT PRIMARY KEY, kids TEXT NOT NULL, seed INTEGER NOT NULL, rom_crc INTEGER NOT NULL,
+      created_at INTEGER NOT NULL, tick INTEGER NOT NULL DEFAULT 0)`);
+    old.query('INSERT INTO games (id, kids, seed, rom_crc, created_at) VALUES (?, ?, ?, ?, ?)').run('old', '["bernard","michael"]', 7, 1, 0);
+    old.close();
+    try {
+      const store = new Store(path);
+      expect(store.game('old')!.rules).toBe(0);
+      store.createGame({ id: 'new', kids: ['wendy', 'jeff'], seed: 8, romCrc: 1, rules: RULES, createdAt: 0 }, []);
+      expect(store.game('new')!.rules).toBe(RULES);
+      store.db.close();
+    } finally {
+      for (const f of [path, `${path}-wal`, `${path}-shm`]) rmSync(f, { force: true });
+    }
   });
 });

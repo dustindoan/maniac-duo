@@ -4,12 +4,13 @@ import { readFileSync } from 'node:fs';
 import { Driver } from '../src/engine/driver';
 import { type RouteStep, runRoute } from '../src/engine/route';
 import { Session } from '../src/engine/session';
+import { RULES } from '../src/story';
 import { affordances, describe as sentence, pairSentence } from '../src/verbs/affordances';
 import { haveRom, rom } from './rom-fixture';
 
 describe.skipIf(!haveRom)('playthrough', () => {
   test('Bernard and Michael beat the game, each controlled by their own player', () => {
-    const d = new Driver(new Session(rom(), { kids: ['bernard', 'michael'], skipIntro: true }));
+    const d = new Driver(new Session(rom(), { kids: ['bernard', 'michael'], skipIntro: true, rules: RULES }));
     // Every sentence must be one the interface offers: a tap-menu verb, or a drag of an item onto a target.
     d.validate = (p, verb, a, b) => {
       if (b) {
@@ -37,7 +38,8 @@ describe.skipIf(!haveRom)('playthrough', () => {
     expect(said(1)).toMatch(/If found, call \d{4}\./);
     expect(said(1)).toContain('You\'re with the Meteor Police!!');
     expect(steps.filter((s) => s.player === 2).length).toBeGreaterThan(20);
-    // Nobody plays Dave: he stays in the front yard where the intro left him.
-    expect([...daveRooms]).toEqual([44]);
+    // Nobody plays Dave: he goes on ahead after the intro (src/story), and by the time Bernard is
+    // on the porch he's waiting in the dungeon, where he stays.
+    expect([...daveRooms]).toEqual([4]);
   });
 });

@@ -1,4 +1,4 @@
-# Bernard (P1) and Michael (P2). Dave stays where the intro left him.
+# Bernard (P1) and Michael (P2). Dave goes on ahead, and waits in the dungeon.
 
 # --- Into the mansion
 1 go to 258

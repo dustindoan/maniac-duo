@@ -5,6 +5,7 @@ import { surface, toRGBA } from '../gfx/nes';
 import { FRAME_H, FRAME_W, ViewRenderer } from '../gfx/view';
 import { crc32 } from '../rom/crc32';
 import { type Rom, identify, loadRom, stripHeader } from '../rom/rom';
+import { RULES } from '../story';
 import type { CreateGameResponse, ServerMessage } from '../server/protocol';
 import { TICK_HZ } from '../server/protocol';
 import { AudioOut } from './audio';
@@ -98,9 +99,10 @@ class GameView {
   constructor(
     public kids: KidName[],
     seed: number,
+    rules: number,
     public controls: Controls,
   ) {
-    this.ls = new Lockstep(rom!, { kids, seed });
+    this.ls = new Lockstep(rom!, { kids, seed, rules });
     this.renderer = new ViewRenderer(rom!);
     this.uis = [1, 2].map((p) => new PlayerUI(p, () => this.ls.session, controls.send));
     const canvas = $<HTMLCanvasElement>('screen');
@@ -290,7 +292,7 @@ class GameView {
 function startLocal(kids: KidName[]) {
   show('game');
   const queue: Command[] = [];
-  const view = new GameView(kids, (Math.random() * 2 ** 31) | 1, { local: [1, 2], send: (c) => queue.push(c) });
+  const view = new GameView(kids, (Math.random() * 2 ** 31) | 1, RULES, { local: [1, 2], send: (c) => queue.push(c) });
   setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes, V voices.');
   // Keep to the real clock: timers fire late or early, and sound should neither lag nor stutter.
   const start = performance.now();
@@ -320,7 +322,7 @@ function startOnline(token: string) {
         return;
       }
       me = msg.player;
-      view = new GameView(msg.game.kids, msg.game.seed, { local: [me], send });
+      view = new GameView(msg.game.kids, msg.game.seed, msg.game.rules, { local: [me], send });
       view.online = new Set(msg.online);
       view.onHash = (tick, hash) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'hash', tick, hash }));
       view.onDesync = (tick) => {

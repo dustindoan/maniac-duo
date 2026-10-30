@@ -1,14 +1,17 @@
-// Disassemble scripts: `bun tools/disasm.ts script 1 2 4`, `bun tools/disasm.ts room 1` (entry/exit + object verbs)
+// Disassemble scripts: `bun tools/disasm.ts script 1 2 4`, `bun tools/disasm.ts room 1` (entry/exit + object verbs).
+// Scripts from 200 up are our additions to the story (src/story), for the current rules.
 import { loadRom } from '../src/rom/rom';
 import { disassemble } from '../src/engine/bytecode';
+import { RULES, storyFor } from '../src/story';
 const rom = loadRom(new Uint8Array(await Bun.file('rom/Maniac Mansion (USA).nes').arrayBuffer()));
 const [kind, ...ids] = process.argv.slice(2);
 const txt = (b: Uint8Array) => String.fromCharCode(...b);
 const VERBS: Record<number, string> = { 1: 'Open', 2: 'Close', 3: 'Give', 4: 'TurnOn', 5: 'TurnOff', 6: 'Fix', 7: 'NewKid', 8: 'Unlock', 9: 'Push', 10: 'Pull', 11: 'Use', 12: 'Read', 13: 'WalkTo', 14: 'PickUp', 15: 'WhatIs', 16: '?16', 255: 'Default' };
-const list = ids.length ? ids.map(Number) : kind === 'script' ? rom.scripts.map((_, i) => i) : rom.rooms.map((_, i) => i);
+const added = storyFor(RULES)?.scripts ?? new Map<number, Uint8Array>();
+const list = ids.length ? ids.map(Number) : kind === 'script' ? [...rom.scripts.keys(), ...added.keys()] : rom.rooms.map((_, i) => i);
 for (const id of list) {
   if (kind === 'script') {
-    const code = rom.scripts[id];
+    const code = rom.scripts[id] ?? added.get(id);
     if (!code) continue;
     console.log(`\n=== script ${id}`);
     console.log(disassemble(code).join('\n'));

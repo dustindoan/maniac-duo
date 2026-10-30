@@ -199,6 +199,22 @@ export interface PlayerConfig {
   kid: number;
 }
 
+/**
+ * Scripts we add to the original game (src/story), written in its own bytecode, and where they hook
+ * in. Their numbers are above the ROM's.
+ */
+export interface Story {
+  scripts: Map<number, Uint8Array>;
+  /** Runs (in the system context) when the players take over from the intro. */
+  start: number;
+  /** Object verbs that run an added script instead of the object's own: object -> verb -> script. */
+  verbs: Map<number, Map<number, number>>;
+  /** Added scripts that always run in the system context, like WORLD_SCRIPTS. */
+  world: Set<number>;
+  /** Added scripts that exist once per player, like PLAYER_SCOPED. */
+  perPlayer: Set<number>;
+}
+
 export interface EngineEvent {
   type: 'restart' | 'gameover';
   value?: number;
@@ -255,6 +271,7 @@ export class Engine {
     public rom: Rom,
     public players: PlayerConfig[],
     seed = 1,
+    public story: Story | null = null,
   ) {
     this.rng = new Rng(seed);
     this.sound = new SoundDriver(rom.sounds);
@@ -482,7 +499,7 @@ export class Engine {
   codeOf(s: Slot): Uint8Array {
     switch (s.kind) {
       case 'G':
-        return this.rom.scripts[s.number]!;
+        return this.scriptCode(s.number)!;
       case 'R':
         return this.rom.rooms[s.room]!.raw;
       default:
@@ -495,14 +512,18 @@ export class Engine {
     throw new Error('Too many scripts running');
   }
 
+  private scriptCode(n: number): Uint8Array | undefined {
+    return this.rom.scripts[n] ?? this.story?.scripts.get(n);
+  }
+
   private scopedMatch(s: Slot, script: number) {
-    return !PLAYER_SCOPED.has(script) || s.ctx === this.cur;
+    return !(PLAYER_SCOPED.has(script) || this.story?.perPlayer.has(script)) || s.ctx === this.cur;
   }
 
   runScript(script: number, freezeResistant: boolean, recursive: boolean, ctx = this.cur) {
     if (!script) return;
-    if (WORLD_SCRIPTS.has(script)) ctx = 0;
-    if (!this.rom.scripts[script]) return;
+    if (WORLD_SCRIPTS.has(script) || this.story?.world.has(script)) ctx = 0;
+    if (!this.scriptCode(script)) return;
     if (!recursive) this.stopScript(script);
     const i = this.getScriptSlot();
     Object.assign(this.slots[i], { number: script, kind: 'G', room: 0, running: true, paused: false, frozen: 0, held: 0, pc: 0, delay: 0, freezeResistant, recursive, ctx, didExec: false });
@@ -514,6 +535,8 @@ export class Engine {
     if (!obj) return;
     const where = this.whereIsObject(obj);
     if (where === 'none') return;
+    const instead = this.story?.verbs.get(obj)?.get(entry);
+    if (instead) return this.runScript(instead, freezeResistant, recursive);
     const slot = slotHint >= 0 ? slotHint : this.getScriptSlot();
     const offs = this.getVerbEntrypoint(obj, entry);
     if (!offs) return;

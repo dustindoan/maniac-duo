@@ -29,7 +29,8 @@ export interface Ins {
   sub?: number;
 }
 
-const SIG: Record<string, string> = {
+/** Operand signatures by opcode name (the assembler in asm.ts writes the same formats). */
+export const SIG: Record<string, string> = {
   stopObjectCode: '', putActor: 'bbb', startMusic: 'b', getActorRoom: 'rb',
   isGreaterEqual: 'Vwj', isNotEqual: 'Vwj', isLess: 'Vwj', isLessEqual: 'Vwj', isGreater: 'Vwj', isEqual: 'Vwj',
   drawObject: 'wbb', getActorElevation: 'rb',
@@ -56,7 +57,7 @@ const SIG: Record<string, string> = {
 };
 
 // 256-entry opcode -> name table (script_v2.cpp setupOpcodes), in groups of 4.
-const NAMES = (
+export const NAMES = (
   'stopObjectCode putActor startMusic getActorRoom isGreaterEqual drawObject getActorElevation setStateIntrinsicOn ' +
   'isNotEqual faceActor assignVarWordIndirect setObjPreposition resourceRoutines walkActorToActor putActorAtObject ifStateIntrinsicOn ' +
   'getObjectOwner animateActor panCameraTo actorOps print actorFromPos getRandomNr setStateTouchable ' +
@@ -94,7 +95,7 @@ if (NAMES.length !== 256) throw new Error(`opcode table has ${NAMES.length} entr
 
 export const opName = (op: number) => NAMES[op];
 
-const PARAMS = [0x80, 0x40, 0x20];
+export const PARAMS = [0x80, 0x40, 0x20];
 
 export class DecodeError extends Error {}
 

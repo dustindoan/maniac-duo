@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { join, normalize } from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import { type ClientMessage, type CreateGameResponse, type GameInfo, type Seat, type ServerMessage, parseCommand, parseCreate, parseHash } from './protocol';
+import { RULES } from '../story';
 import { type Peer, Relay } from './relay';
 import { Store } from './store';
 
@@ -49,7 +50,7 @@ export function createServer({ port = 8787, dbPath = 'data/games.sqlite', webRoo
       if (url.pathname === '/api/games' && req.method === 'POST') {
         const body = parseCreate(await req.json().catch(() => null));
         if (!body) return json({ error: 'expected {kids: [kid, kid], romCrc}' }, 400);
-        const game: GameInfo = { id: gameId(), kids: body.kids, seed: randomBytes(4).readUInt32LE() || 1, romCrc: body.romCrc, createdAt: Date.now() };
+        const game: GameInfo = { id: gameId(), kids: body.kids, seed: randomBytes(4).readUInt32LE() || 1, romCrc: body.romCrc, rules: RULES, createdAt: Date.now() };
         const seats: Seat[] = body.kids.map((kid, i) => ({ player: i + 1, kid, token: token() }));
         store.createGame(game, seats);
         return json({ game, seats } satisfies CreateGameResponse, 201);
