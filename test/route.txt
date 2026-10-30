@@ -112,6 +112,7 @@
 1 go to 465
 1 open 461
 1 go to 461           # Edna's room
+1 wait 100            # she walks over and grabs him (you could still run)
 1 idle
 
 # --- In the dungeon: unlock the padlocks, open both doors for the police

@@ -3,8 +3,8 @@
 
 import type { Engine } from '../engine/engine';
 import type { Command, Session } from '../engine/session';
-import { type Rect, type View, FRAME_W, Font, GREY, WHITE, YELLOW, toRoom } from '../gfx/view';
-import { NES_BLACK, type Surface } from '../gfx/nes';
+import { type Rect, type View, Font, GREY, WHITE, YELLOW, toRoom } from '../gfx/view';
+import type { Surface } from '../gfx/nes';
 import { type Affordance, VERB, VERB_LABELS, affordances, pairSentence } from '../verbs/affordances';
 import { type Suggestion, type Target, dpadTarget, suggestions, touchable } from '../verbs/focus';
 
@@ -22,13 +22,11 @@ interface Menu {
 }
 
 const INV_ROWS = 5;
-/** The ITEMS button at the right end of the status line. */
-const ITEMS_X = FRAME_W - 7 * 8;
 
 export class PlayerUI {
-  /** What A would do, best first; B steps through them. */
+  /** What A could do, best first. Nothing is chosen (-1) until B steps through them. */
   options: Suggestion[] = [];
-  optionIndex = 0;
+  optionIndex = -1;
   inHand: { item: number; verb: number } | null = null;
   inventoryOpen = false;
   invIndex = 0;
@@ -66,7 +64,9 @@ export class PlayerUI {
       return;
     }
     if (this.inventoryOpen || this.menu) {
-      this.lastPad = pad;
+      // Opening an overlay mid-walk stops the kid; the D-pad now moves the overlay's cursor.
+      if (this.lastPad.dx || this.lastPad.dy) this.send({ type: 'stop', player: this.player });
+      this.lastPad = { dx: 0, dy: 0 };
       return;
     }
     const changed = pad.dx !== this.lastPad.dx || pad.dy !== this.lastPad.dy;
@@ -79,12 +79,22 @@ export class PlayerUI {
       if (t) this.send({ type: 'walk', player: this.player, x: t.x, y: t.y });
     }
     this.lastPad = pad;
-    // Keep the chosen suggestion if it is still on offer; otherwise start from the best one.
+    // Keep the chosen suggestion while it is still on offer; walking or losing it chooses nothing.
     this.options = suggestions(e, this.player, this.inHand?.item ?? null);
     const keep = this.options.findIndex((o) => `${o.target.id}/${o.verb}` === this.lastOption);
-    this.optionIndex = moving ? 0 : Math.max(0, keep);
+    this.optionIndex = moving ? -1 : keep;
     const cur = this.options[this.optionIndex];
     this.lastOption = cur ? `${cur.target.id}/${cur.verb}` : '';
+  }
+
+  /** Forget choices and overlays: the game started over. */
+  reset() {
+    this.options = [];
+    this.optionIndex = -1;
+    this.lastOption = '';
+    this.inHand = null;
+    this.inventoryOpen = false;
+    this.menu = null;
   }
 
   get focus(): Target | null {
@@ -107,10 +117,11 @@ export class PlayerUI {
     }
     if (b === 'b') {
       const n = this.options.length;
-      if (n > 1) {
-        this.optionIndex = (this.optionIndex + 1) % n;
+      if (n) {
+        // Nothing, then each suggestion in turn, then nothing again.
+        this.optionIndex = this.optionIndex + 1 < n ? this.optionIndex + 1 : -1;
         const cur = this.options[this.optionIndex];
-        this.lastOption = `${cur.target.id}/${cur.verb}`;
+        this.lastOption = cur ? `${cur.target.id}/${cur.verb}` : '';
       } else if (this.inHand) this.inHand = null;
       return;
     }
@@ -133,7 +144,7 @@ export class PlayerUI {
       this.inventoryOpen = false;
       return;
     }
-    if (b === 'a' && items[this.invIndex]) this.openMenu(items[this.invIndex]);
+    if (b === 'a' && items[this.invIndex]) this.pickItem(items[this.invIndex]);
   }
 
   private menuPress(b: Button) {
@@ -143,6 +154,20 @@ export class PlayerUI {
       return;
     }
     if (b === 'a') this.choose(m.items[m.index]);
+  }
+
+  /**
+   * Choose an item in the inventory: with another item in hand, that completes the sentence
+   * ("Use batteries with flashlight"); choosing the one in hand puts it back. Otherwise, its verbs.
+   */
+  private pickItem(obj: number) {
+    if (!this.inHand) return this.openMenu(obj);
+    if (obj !== this.inHand.item) {
+      const s = pairSentence(this.e, this.inHand.item, obj);
+      this.sentence(s.verb, s.a, s.b);
+    }
+    this.inHand = null;
+    this.inventoryOpen = false;
   }
 
   private openMenu(obj: number) {
@@ -198,15 +223,11 @@ export class PlayerUI {
       else this.menu = null;
       return;
     }
-    if (y >= v.statusY && y < v.statusY + 8 && x >= ITEMS_X) {
-      this.inventoryOpen = !this.inventoryOpen;
-      return;
-    }
     if (this.inventoryOpen) {
       const i = this.invHit(x, y);
       if (i >= 0) {
         this.invIndex = i;
-        this.openMenu(this.items()[i]);
+        this.pickItem(this.items()[i]);
       } else this.inventoryOpen = false;
       return;
     }
@@ -250,16 +271,18 @@ export class PlayerUI {
   status(): string {
     const e = this.e;
     const name = e.nameOf(this.kid());
-    if (!e.canAct(this.player)) return e.ctxs[0].cutscene || e.ctxs[this.player].cutscene || e.cutAway() ? `${name} - START SKIPS` : name;
+    if (!e.canAct(this.player)) return name;
     if (this.inHand && !this.options.length) return `${VERB_LABELS[this.inHand.verb]} ${e.nameOf(this.inHand.item)}... B drops`;
     if (this.hover) return this.hover;
+    // '^' is the NES font's ellipsis: B has suggestions to step through.
+    const more = this.options.length ? '^' : '';
     const o = this.options[this.optionIndex];
-    // '^' is the NES font's ellipsis: more suggestions behind B.
-    if (o) return o.label + (this.options.length > 1 ? '^' : '');
-    return name;
+    if (o) return o.label + more;
+    if (this.inHand) return `${VERB_LABELS[this.inHand.verb]} ${e.nameOf(this.inHand.item)}${more}`;
+    return name + more;
   }
 
-  /** Overlays for this player's half: focus brackets, ITEMS, inventory, verb menu. */
+  /** Overlays for this player's half: focus brackets, inventory, verb menu. */
   drawOverlay(dst: Surface, font: Font) {
     const v = this.view;
     if (!v || v.shared) return;
@@ -272,12 +295,13 @@ export class PlayerUI {
       const y1 = Math.min(sc.y + sc.h - 1, sc.y + f.y + f.h - 1 - v.scrollY);
       bracket(dst, x0, y0, x1, y1, this.inHand ? YELLOW : WHITE, sc.x, sc.x + sc.w, sc.y, sc.y + sc.h);
     }
-    font.draw(dst, ' ITEMS ', ITEMS_X, v.statusY, this.inventoryOpen ? WHITE : GREY, NES_BLACK);
     if (this.inventoryOpen) {
       const box = this.inventoryBox();
       fill(dst, box, 0x0f);
       const items = this.items();
-      font.draw(dst, `${this.e.nameOf(this.kid())}'s things`.slice(0, 27), box.x + 8, box.y + 2, YELLOW);
+      // With an item in hand, the items are things to use it with (you can't give to an item).
+      const title = this.inHand ? `Use ${this.e.nameOf(this.inHand.item)} with^` : `${this.e.nameOf(this.kid())}'s things`;
+      font.draw(dst, title.slice(0, 27), box.x + 8, box.y + 2, YELLOW);
       if (!items.length) font.draw(dst, '(nothing)', box.x + 8, box.y + 16, GREY);
       const page = Math.floor(this.invIndex / (INV_ROWS * 2));
       items.slice(page * INV_ROWS * 2, (page + 1) * INV_ROWS * 2).forEach((obj, i) => {

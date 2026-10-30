@@ -101,8 +101,8 @@ export interface Suggestion {
 }
 
 /**
- * What A could do next, best first. Nearby things take turns (their best verb, then their next),
- * nearest first -- except that something you could pick up comes first: it's usually the point.
+ * What A could do next, best first: nearby things, nearest first, each with all of its verbs before
+ * the next thing's -- except that something you could pick up comes first: it's usually the point.
  */
 export function suggestions(e: Engine, p: number, inHand: number | null, max = 4): Suggestion[] {
   const targets = focusTargets(e, p, inHand !== null).slice(0, max);
@@ -114,9 +114,7 @@ export function suggestions(e: Engine, p: number, inHand: number | null, max = 4
   const lists = targets.map((t) => affordances(e, p, t.id).map((v) => ({ target: t, verb: v.verb, label: v.verb === VERB.goTo && t.name === 'this way' ? 'Go this way' : `${v.label} ${t.name}` })));
   const pickup = lists.findIndex((l) => l[0]?.verb === VERB.get && e.getState(l[0].target.id) & 1);
   if (pickup > 0) lists.unshift(...lists.splice(pickup, 1));
-  const out: Suggestion[] = [];
-  for (let round = 0; lists.some((l) => l.length > round); round++) for (const l of lists) if (l[round]) out.push(l[round]);
-  return out;
+  return lists.flat();
 }
 
 /** Where to walk for a held D-pad direction, in room pixels. */

@@ -232,7 +232,8 @@ function op(e: Engine, s: Engine['slots'][number], ins: Ins) {
       return;
     case 'pickupObject':
       e.pickupObject(A(0));
-      e.events.push({ type: 'sound', value: 51 });
+      // The pickup sound (ScummVM triggerSound(51)).
+      e.startSound(51);
       return;
     case 'drawObject':
       e.drawObject(A(0), A(1), A(2));
@@ -314,7 +315,8 @@ function op(e: Engine, s: Engine['slots'][number], ins: Ins) {
     case 'walkActorToActor': {
       const a = e.actors[A(0)];
       const to = e.actors[A(1)];
-      if (!a || !to || !e.isViewed(a.room) || !e.isViewed(to.room)) return;
+      // Both in the same viewed room (the original's isInCurrentRoom, with several rooms live).
+      if (!a || !to || a.room !== to.room || !e.isViewed(a.room)) return;
       const dist = A(2) * 8;
       let x = to.x * 8;
       const y = to.y * 2;
@@ -565,6 +567,7 @@ function op(e: Engine, s: Engine['slots'][number], ins: Ins) {
     }
     case 'lights':
       if (A(2) === 0) e.writeVar(V.CURRENT_LIGHTS, A(0));
+      else if (A(2) === 1) e.flashlight = { xStrips: A(0), yStrips: A(1) };
       return;
     case 'setBoxFlags': {
       const lr = e.loadedRoom(e.ctxRoom());
@@ -604,6 +607,7 @@ function op(e: Engine, s: Engine['slots'][number], ins: Ins) {
       e.stopSound(A(0));
       return;
     case 'stopMusic':
+      e.stopAllSounds();
       return;
     case 'isSoundRunning':
       setResult(e, ins, A(0) ? e.isSoundRunning(A(0)) : 0);

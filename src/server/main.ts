@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, normalize } from 'node:path';
 import type { ServerWebSocket } from 'bun';
-import { type ClientMessage, type CreateGameResponse, type GameInfo, type Seat, type ServerMessage, parseCommand, parseCreate } from './protocol';
+import { type ClientMessage, type CreateGameResponse, type GameInfo, type Seat, type ServerMessage, parseCommand, parseCreate, parseHash } from './protocol';
 import { type Peer, Relay } from './relay';
 import { Store } from './store';
 
@@ -83,12 +83,21 @@ export function createServer({ port = 8787, dbPath = 'data/games.sqlite', webRoo
         } catch {
           return;
         }
-        if (msg.type !== 'cmd') return;
+        if (msg?.type === 'hash') {
+          const h = parseHash(msg);
+          if (h) relays.get(ws.data.gameId)?.shareHash(ws.data.player, h.tick, h.hash);
+          return;
+        }
+        if (msg?.type !== 'cmd') return;
         const cmd = parseCommand(msg.cmd, ws.data.player);
         if (cmd) relayFor(ws.data.gameId).submit(ws.data.player, cmd);
       },
       close(ws) {
-        if (ws.data.peer) relays.get(ws.data.gameId)?.leave(ws.data.peer);
+        const r = relays.get(ws.data.gameId);
+        if (!r || !ws.data.peer) return;
+        r.leave(ws.data.peer);
+        // Nobody left: the clock has stopped and the tick is stored; the next join loads it again.
+        if (r.peers.size === 0) relays.delete(ws.data.gameId);
       },
     },
   });

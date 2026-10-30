@@ -7,6 +7,9 @@ import { crc32 } from '../rom/crc32';
 import { type Rom, identify, loadRom, stripHeader } from '../rom/rom';
 import type { CreateGameResponse, ServerMessage } from '../server/protocol';
 import { TICK_HZ } from '../server/protocol';
+import { AudioOut } from './audio';
+import { Footfalls } from './footsteps';
+import { Voices } from './voices';
 import { type Button, type Pad, PlayerUI } from './player-ui';
 import { forgetRom, loadStoredRom, storeRom } from './rom-store';
 
@@ -17,6 +20,8 @@ let romCrc = 0;
 
 function show(screen: 'rom' | 'lobby' | 'game') {
   for (const s of ['rom', 'lobby', 'game']) $(s).hidden = s !== screen;
+  // While playing, the screen takes the whole window.
+  document.body.classList.toggle('playing', screen === 'game');
 }
 
 function setMessage(id: string, text: string) {
@@ -70,13 +75,25 @@ class GameView {
   ls: Lockstep;
   uis: PlayerUI[];
   renderer: ViewRenderer;
+  audio = new AudioOut();
+  private footfalls = new Footfalls();
+  private voices = new Voices(() => this.audio.muted);
   online = new Set<number>([1, 2]);
   /** World fingerprints every 60 ticks: two clients of one game must agree (desync check). */
   hashes = new Map<number, string>();
+  /** Fingerprints other players reported, for ticks this client hasn't reached yet. */
+  private theirs = new Map<number, string>();
+  /** Called with this client's fingerprint, to share it (online games). */
+  onHash: (tick: number, hash: string) => void = () => {};
+  /** Called once if another client's world differs from this one. */
+  onDesync: (tick: number) => void = () => {};
+  private desynced = false;
   private surf = surface(FRAME_W, FRAME_H);
   private ctx: CanvasRenderingContext2D;
   private image: ImageData;
   private keys = new Set<string>();
+  /** Restarts seen, to reset the interface when the game starts over. */
+  private restarts = 0;
 
   constructor(
     public kids: KidName[],
@@ -104,12 +121,39 @@ class GameView {
   /** Advance one tick: gather pads, let local UIs emit commands, run the engine frame. */
   advance(t: number, cmds: Command[]) {
     this.ls.advance(t, cmds);
-    if (t % 60 === 0) this.hashes.set(t, stateHash(this.ls.session));
+    if (this.ls.session.restarts !== this.restarts) {
+      this.restarts = this.ls.session.restarts;
+      for (const ui of this.uis) ui.reset();
+    }
+    this.audio.play(this.ls.session.engine.sound.out);
+    for (const f of this.footfalls.update(this.ls.session, this.controls.local)) this.audio.footstep(f.foot);
+    this.voices.update(this.ls.session, this.controls.local);
+    if (t % 60 === 0) {
+      const h = stateHash(this.ls.session);
+      this.hashes.set(t, h);
+      this.hashes.delete(t - 600);
+      this.onHash(t, h);
+      if (this.theirs.has(t)) this.compare(t, this.theirs.get(t)!);
+      for (const k of this.theirs.keys()) if (k < t) this.theirs.delete(k);
+    }
     this.controls.local.forEach((p, i) => this.uis[p - 1].tick(this.pad(i)));
   }
 
+  /** Another client's fingerprint for tick `t`. */
+  theirHash(t: number, hash: string) {
+    if (this.hashes.has(t)) this.compare(t, hash);
+    else if (t > this.ls.tick) this.theirs.set(t, hash);
+  }
+
+  private compare(t: number, hash: string) {
+    this.theirs.delete(t);
+    if (hash === this.hashes.get(t) || this.desynced) return;
+    this.desynced = true;
+    this.onDesync(t);
+  }
+
   private frame = () => {
-    const views = this.renderer.drawFrame(this.ls.session, this.surf, (p) => this.statusOf(p));
+    const views = this.renderer.drawFrame(this.ls.session, this.surf, (p) => this.statusOf(p), this.controls.local);
     for (const ui of this.uis) {
       ui.view = views[ui.player - 1];
       if (this.isLocal(ui.player)) ui.drawOverlay(this.surf, this.renderer.font);
@@ -159,6 +203,7 @@ class GameView {
       if (!gp) return;
       const prev = this.gpPrev[i] ?? [];
       const edge = (n: number) => !!gp.buttons[n]?.pressed && !prev[n];
+      if (gp.buttons.some((_, n) => edge(n))) this.audio.unlock();
       const ui = this.uis[p - 1];
       if (edge(0)) ui.press('a');
       if (edge(1)) ui.press('b');
@@ -175,21 +220,39 @@ class GameView {
     requestAnimationFrame(() => this.pollGamepads());
   }
 
+  /** Who Esc skips for: a local player whose own cutscene is running, else the first one (shared scenes). */
+  private skipper(): number {
+    const e = this.ls.session.engine;
+    return this.controls.local.find((p) => e.ctxs[p].cutscene) ?? this.controls.local[0];
+  }
+
   private bindInput(canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (ev) => {
       if (document.activeElement?.tagName === 'INPUT') return;
       this.keys.add(ev.code);
+      this.audio.unlock();
+      if (ev.code === 'KeyM') {
+        if (!ev.repeat) this.audio.toggleMute();
+        if (this.audio.muted) this.voices.silence();
+        return;
+      }
+      if (ev.code === 'KeyV') {
+        if (!ev.repeat) this.voices.toggle();
+        return;
+      }
       if (ev.code === 'Escape') {
-        this.uis[this.controls.local[0] - 1].press('skip');
+        if (!ev.repeat) this.uis[this.skipper() - 1].press('skip');
         return;
       }
       this.schemes().forEach((sc, i) => {
         const ui = this.uis[this.controls.local[i] - 1];
         const is = (codes: string[]) => codes.includes(ev.code);
+        // A held key repeats: let that scroll an overlay, but not act or toggle Items again.
+        const press = (b: Button) => ev.repeat || ui.press(b);
         let handled = true;
-        if (is(sc.a)) ui.press('a');
-        else if (is(sc.b)) ui.press('b');
-        else if (is(sc.items)) ui.press('items');
+        if (is(sc.a)) press('a');
+        else if (is(sc.b)) press('b');
+        else if (is(sc.items)) press('items');
         else if (ui.overlayOpen && is(sc.up)) ui.navigate(0, -1);
         else if (ui.overlayOpen && is(sc.down)) ui.navigate(0, 1);
         else if (ui.overlayOpen && is(sc.left)) ui.navigate(-1, 0);
@@ -209,6 +272,7 @@ class GameView {
       return { p: ui?.player ?? 0, x, y };
     };
     canvas.addEventListener('pointerdown', (ev) => {
+      this.audio.unlock();
       const { p, x, y } = locate(ev);
       if (p && this.isLocal(p)) this.uis[p - 1].click(x, y);
     });
@@ -227,9 +291,14 @@ function startLocal(kids: KidName[]) {
   show('game');
   const queue: Command[] = [];
   const view = new GameView(kids, (Math.random() * 2 ** 31) | 1, { local: [1, 2], send: (c) => queue.push(c) });
-  setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes.');
+  setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes, V voices.');
+  // Keep to the real clock: timers fire late or early, and sound should neither lag nor stutter.
+  const start = performance.now();
   let t = 0;
-  setInterval(() => view.advance(++t, queue.splice(0)), 1000 / TICK_HZ);
+  setInterval(() => {
+    const due = Math.floor(((performance.now() - start) * TICK_HZ) / 1000);
+    while (t < due) view.advance(++t, queue.splice(0));
+  }, 1000 / TICK_HZ / 2);
 }
 
 function startOnline(token: string) {
@@ -253,6 +322,11 @@ function startOnline(token: string) {
       me = msg.player;
       view = new GameView(msg.game.kids, msg.game.seed, { local: [me], send });
       view.online = new Set(msg.online);
+      view.onHash = (tick, hash) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'hash', tick, hash }));
+      view.onDesync = (tick) => {
+        console.error(`desync: worlds differ at tick ${tick}`);
+        setMessage('game-status', 'Your game is out of step with your partner\'s. Reload to catch up again.');
+      };
       const log = msg.log.map(([t, , c]) => [t, c] as [number, Command]);
       const target = msg.tick;
       setMessage('game-status', `Catching up on ${target} ticks…`);
@@ -265,7 +339,7 @@ function startOnline(token: string) {
           catchingUp = false;
           for (const p of pending) if (p.tick > view!.ls.tick) view!.advance(p.tick, p.cmds);
           pending = [];
-          setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip. Gamepads work too.`);
+          setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip, M mute, V voices. Gamepads work too.`);
         }
       };
       chunk();
@@ -274,6 +348,7 @@ function startOnline(token: string) {
       if (catchingUp) pending.push({ tick: msg.tick, cmds });
       else view.advance(msg.tick, cmds);
     } else if (msg.type === 'presence' && view) view.online = new Set(msg.online);
+    else if (msg.type === 'hash' && view) view.theirHash(msg.tick, msg.hash);
     else if (msg.type === 'error') setMessage('game-status', msg.message);
   };
   ws.onclose = () => setMessage('game-status', 'Disconnected. Reload to rejoin; the game waits for you.');

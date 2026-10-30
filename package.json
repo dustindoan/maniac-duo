@@ -7,7 +7,7 @@
   "scripts": {
     "test": "bun test",
     "check": "tsc --noEmit",
-    "playthrough": "bun tools/playthrough.ts",
+    "playthrough": "bun test test/playthrough.test.ts",
     "server": "bun src/server/main.ts",
     "build:web": "bun tools/build-web.ts",
     "dev": "bun tools/dev.ts"

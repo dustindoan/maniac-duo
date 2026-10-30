@@ -26,6 +26,17 @@ describe.skipIf(!haveRom)('verb system', () => {
     expect(labels(d, 61)).toEqual(['Go to', 'Close', 'Use']);
   });
 
+  test('Turn on and Turn off are both offered, whatever the object\'s own state says', () => {
+    // The light switch keeps the room's lights in a bit variable, never in its own state; the TV
+    // does use its own state. Both offer both halves either way.
+    const d = game('1 go to 258');
+    for (const obj of [335, 190]) {
+      expect(labels(d, obj)).toEqual(expect.arrayContaining(['Turn on', 'Turn off']));
+      d.e.state[obj] |= 8;
+      expect(labels(d, obj)).toEqual(expect.arrayContaining(['Turn on', 'Turn off']));
+    }
+  });
+
   test('items in your inventory drop Get; dragging means Give to people, Use on things', () => {
     const d = game('1 go to 258\n1 pull door mat\n1 get key');
     expect(labels(d, 55)).toEqual(['Use']);
@@ -38,6 +49,15 @@ describe.skipIf(!haveRom)('verb system', () => {
     const s = suggestions(d.e, 1, null).map((x) => x.label);
     expect(s[0]).toBe('Get key');
     expect(s).toContain('Push door mat');
+  });
+
+  test("suggestions offer all of one thing's verbs before the next thing's", () => {
+    const d = game('1 go to 258\n1 pull door mat');
+    const ids = suggestions(d.e, 1, null).map((x) => x.target.id);
+    expect(new Set(ids).size).toBeLessThan(ids.length); // something has more than one verb here
+    // Each thing appears in one unbroken run.
+    const runs = ids.filter((id, i) => i === 0 || ids[i - 1] !== id);
+    expect(new Set(runs).size).toBe(runs.length);
   });
 
   test('holding an item turns suggestions into "use with" for nearby things', () => {

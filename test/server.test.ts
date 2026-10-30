@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { createServer } from '../src/server/main';
 import type { CreateGameResponse, ServerMessage } from '../src/server/protocol';
 
-const { server } = createServer({ port: 0, dbPath: ':memory:', webRoot: '/nonexistent' });
+const { server, relays } = createServer({ port: 0, dbPath: ':memory:', webRoot: '/nonexistent' });
 const base = `http://localhost:${server.port}`;
 afterAll(() => server.stop(true));
 
@@ -76,6 +76,37 @@ describe('relay server', () => {
     const w = again.msgs.find((x) => x.type === 'welcome')!;
     const lastSeen = Math.max(...p.msgs.filter((x) => x.type === 'tick').map((x) => (x as { tick: number }).tick));
     expect(w.type === 'welcome' && w.tick - lastSeen).toBeLessThanOrEqual(1);
+    again.ws.close();
+  });
+
+  test("a player's world fingerprint goes to the others, not back to them", async () => {
+    const { seats } = (await (await fetch(`${base}/api/games`, { method: 'POST', body: JSON.stringify({ kids: ['syd', 'razor'], romCrc: 1 }) })).json()) as CreateGameResponse;
+    const [p1, p2] = seats.map((s) => connect(s.token));
+    await Promise.all([p1.opened, p2.opened]);
+    await p1.until((m) => m.some((x) => x.type === 'presence' && x.online.length === 2));
+    p1.ws.send(JSON.stringify({ type: 'hash', tick: 60, hash: 'BAD!' }));
+    p1.ws.send(JSON.stringify({ type: 'hash', tick: 60, hash: 'c0ffee' }));
+    await p2.until((m) => m.some((x) => x.type === 'hash'));
+    expect(p2.msgs.filter((x) => x.type === 'hash')).toEqual([{ type: 'hash', player: 1, tick: 60, hash: 'c0ffee' }]);
+    await Bun.sleep(50);
+    expect(p1.msgs.some((x) => x.type === 'hash')).toBe(false);
+    p1.ws.close();
+    p2.ws.close();
+  });
+
+  test('a game nobody is playing is dropped from memory and picks up where it was', async () => {
+    const { game, seats } = (await (await fetch(`${base}/api/games`, { method: 'POST', body: JSON.stringify({ kids: ['wendy', 'syd'], romCrc: 1 }) })).json()) as CreateGameResponse;
+    const p = connect(seats[0].token);
+    await p.until((m) => m.filter((x) => x.type === 'tick').length >= 3);
+    expect(relays.has(game.id)).toBe(true);
+    p.ws.close();
+    const end = Date.now() + 2000;
+    while (relays.has(game.id) && Date.now() < end) await Bun.sleep(10);
+    expect(relays.has(game.id)).toBe(false);
+    const again = connect(seats[0].token);
+    await again.until((m) => m.some((x) => x.type === 'welcome'));
+    const w = again.msgs.find((x) => x.type === 'welcome')!;
+    expect(w.type === 'welcome' && w.tick).toBeGreaterThanOrEqual(3);
     again.ws.close();
   });
 });

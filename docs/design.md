@@ -8,8 +8,8 @@ Each half is the original 224-pixel room view between black borders, showing 118
 128 rows: it follows the kid's feet, so what's left out is almost always ceiling or sky. The
 dialogue and status lines are drawn over the scene. When everyone has to watch the same thing (the
 intro, a world cutscene, or a player's cutscene that cuts away to another room), the split goes
-away and that scene fills the screen in the original arrangement: dialogue, the whole room, then
-each player's status line. Each player controls exactly one kid. Dave is still in the game, but
+away and that scene fills the screen in the original arrangement: dialogue, then the whole room,
+with nothing below it. Each player controls exactly one kid. Dave is still in the game, but
 nobody controls him: he stays where the intro leaves him.
 
 Everything the game does comes from the ROM: rooms, objects, costumes, the font, and every script.
@@ -34,6 +34,11 @@ your ROM (browser, IndexedDB)            relay server (no ROM)
 The server never runs the game. Each browser runs the same deterministic engine over the same
 command log, so the server only has to order commands. A player who joins later (or reloads)
 replays the log to catch up. `test/lockstep.test.ts` checks the replay reproduces the world exactly.
+When the game restarts ("Press 'B' button play again" after a game over), the session builds a
+new game at that tick, with the same kids and a seed derived from the first, so every client
+starts over together. Every 60 ticks each client shares a fingerprint of its world through the server, and says so if
+its partner's differs. If the engine ever throws on a command or a frame, every client throws at
+the same point, so play carries on (`Lockstep.errors`) instead of leaving a log nobody can load.
 
 ## Several kids at once: contexts
 
@@ -65,6 +70,11 @@ whatever started them, with these rules:
   A world cutscene freezes everyone; if it moves the camera, it fills the screen too. Anyone can
   skip what everyone is watching. Players whose kid was moved to another room by someone else's
   script (for example, captured into the dungeon) follow their kid once the cutscene is over.
+- **"Meanwhile..."**: when a scene takes over the screen, the world pauses for a moment: the
+  split screen fades to black, and the scene fades in (`Session.meanwhile`). Players whose kid
+  isn't in the scene see "Meanwhile..." on black in between, after Day of the Tentacle; a player
+  whose kid is in it (just caught, say) sees only the fade, and if every kid is, there's no card
+  to hold. Skipping during the card ends it.
 - **Freezes**: a player's freeze (their cutscene, a keypad) also holds the world's scripts, as in
   the original. While a world cutscene runs, a player's freeze of world scripts waits for it to
   end (`Slot.held`): the player can't act meanwhile, so nothing would ever release it.
@@ -73,6 +83,34 @@ whatever started them, with these rules:
 
 The rest follows ScummVM: walk boxes and the box matrix, actor walking in 8x2-pixel steps, costume
 animation, object state bits, inventory, messages and talk timing.
+
+## Sound
+
+`src/sound/driver.ts` is the game's own sound driver (ported from ScummVM's NES player). It runs
+inside the engine, 60 times a second (`delta` steps per engine frame), because scripts wait for
+sounds to finish: how long a sound runs comes from its data, deterministically, on every client.
+Its output is a list of sound-chip register writes per engine frame. The browser feeds those to
+`src/sound/apu.ts`, an NES sound chip (two square waves, a triangle, noise), and queues the
+samples a little ahead of the speakers (`src/web/audio.ts`), nudging playback speed by at most 2%
+so uneven ticks neither stutter nor lag. Nothing the chip does feeds back into the game. The
+noise channel, which most sound effects use, is mixed at its NES level relative to the squares
+(ScummVM's simplified chip has it at half that).
+
+Footsteps are ours, not the original's: a soft NES-noise scuff each time a walking actor's foot
+lands (twice per walk cycle), for the rooms on your screen (`src/web/footsteps.ts`). They play
+in the browser beside the chip, not through the game's driver, whose effects would mute the
+music, and nothing in the game depends on them.
+
+Voices are ours too: characters' lines (anything a character says, the lines with mouth
+animation, never narration) are read aloud by the browser's speech synthesis as they appear on
+your screen (`src/web/voices.ts`). Each character gets an English system voice of the right
+kind and a pitch of their own (a voice named like them if there is one). A line is let finish;
+a line still waiting its turn when another appears is dropped, so speech is never more than a
+line behind the text. The waiting line is kept by us rather than queued in the browser, because
+Chrome can lose a chosen voice after `speechSynthesis.cancel()`. V toggles voices; M silences them with everything else.
+
+There is one driver, as there was one chip: both players hear every sound and the music, whichever
+room it comes from, and a sound effect mutes the music while it plays, as in the original.
 
 Two NES-specific findings worth knowing:
 
@@ -93,7 +131,9 @@ and only two of them take a second object (Use X with Y, Give X to Y). From that
    plainest name (Pull beats Get; Get and Read have extra rules in the sentence script).
 3. **Toggles show the half that applies.** A closed door offers Open, an open door offers Go to
    and Close, a flat door mat offers Pull, a pulled one offers Push. A closed door doesn't offer
-   Go to at all.
+   Go to at all. Turn on and Turn off are both always offered: most switchable things keep
+   whether they're on somewhere other than their own state (a lamp darkens the room, the
+   flashlight sets a variable), so their state can't tell which half applies.
 4. **An item meets a person: Give. An item meets a thing: Use.** The original scripts work out
    the rest.
 
@@ -107,13 +147,19 @@ Direct control (`src/verbs/focus.ts`, `src/web/player-ui.ts`):
 - **D-pad walks your kid.** Holding a direction walks toward that edge along the walk boxes, and
   releasing stops. This needed one new command, `stop`.
 - **Suggestions**: nearby things you can act on (nearest first, favouring the way you face, with
-  pickups first) take turns offering their verbs. The status line shows the current one, and the
-  thing is outlined.
-- **A** does what the status line says. **B** shows the next suggestion; with an item in hand,
-  B drops it.
+  pickups first), each with its verbs. Nothing is chosen at first: **B** steps through them, all
+  of one thing's verbs before the next thing's, and back to nothing. The status line shows the chosen one, and the thing is
+  outlined; walking clears the choice.
+- **A** does what the status line says (nothing, if nothing is chosen). With an item in hand,
+  the suggestions are the things to use it with; B drops the item only when there's nothing
+  nearby to use it with (the status line then says "B drops").
 - **Items** opens the overlay over your half. Choosing Use or Give puts the item in hand, and the
-  suggestions become "Use key with front door" for nearby things.
+  suggestions become "Use key with front door" for nearby things. Opening Items again and
+  choosing another item completes "Use batteries with flashlight"; choosing the one in hand puts
+  it back.
 - Mouse and touch: click the floor to walk, click a thing for its verbs.
+- **Go to a person** walks your kid up beside them. The game's scripts do nothing with that
+  sentence, so the engine handles it (`Engine.sentence`).
 
 Suggestions are computed on each client from shared state; only the resulting sentence goes on the
 wire, so they can't desynchronise anything.
@@ -148,11 +194,12 @@ simulate.
 
 ## Not done yet, and known differences
 
-- **Sound and music** are timed but not played. NES APU playback would be its own piece.
-- **Flashlight** darkness and some lighting details are approximate: dark rooms use the dark
-  palette, with no flashlight circle.
-- **Message display** uses NES text timing; text is shown per room, not in the original
-  per-actor colours.
+- **Flashlight**: as on the NES, a dark room is black except for people, and the flashlight
+  shows a 48x32 beam of the dimmed room. The original centres the beam on the cursor; with no
+  cursor here, it centres on whoever holds the flashlight, at chest height.
+- **Message display** uses NES text timing, and is shown per room. As on the NES, no names:
+  each speaker's text is yellow or white, switching whenever someone else speaks (narration is
+  yellow). The switch is kept per room, since one conversation can run in two contexts.
 - **Who does what in a world cutscene** is decided by the context rules above. They hold for the
   route here, but untested parts of the game (the other kids' endings, the plant, the Edsel) may
   surface script assumptions about a single ego; the fix would be a new entry in `WORLD_SCRIPTS`
@@ -163,7 +210,8 @@ simulate.
 
 ## Sources
 
-- ScummVM, `engines/scumm` (GPL-3.0+): interpreter, actors, boxes, NES graphics, costumes.
+- ScummVM, `engines/scumm` (GPL-3.0+): interpreter, actors, boxes, NES graphics, costumes, and
+  the NES sound driver and APU (`players/player_nes.cpp`).
 - gmarty/scumm-nes (Blue Oak 1.0.0): NES resource tables and parsers.
 - segrax/Maniac.Mansion.Disassembly and pditincho/mm-explained: script and engine commentary.
 - thonky.com walkthroughs, for the skeleton of the route; the details came from the scripts.

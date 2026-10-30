@@ -41,6 +41,13 @@ export async function storeRom(bytes: Uint8Array) {
 export async function forgetRom() {
   try {
     const db = await open();
-    db.transaction(STORE, 'readwrite').objectStore(STORE).delete('prg');
+    // Wait for the delete to commit: the caller reloads the page straight after.
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete('prg');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
   } catch {}
 }

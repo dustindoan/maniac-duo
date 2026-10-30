@@ -375,7 +375,8 @@ export function walkActor(e: Engine, a: Actor) {
     a.moving |= MF_LAST_LEG;
   } else {
     const nb = a.walkbox === INVALID_BOX ? a.walk.destBox : a.walk.destBox === INVALID_BOX ? -1 : nextBox(lr.room.matrix, lr.room.boxes.length, a.walkbox, a.walk.destBox);
-    if (nb < 0) {
+    // Room 34's matrix names a box 2 it doesn't have; treat that like no way through (as walkRoute does).
+    if (nb < 0 || nb >= lr.room.boxes.length) {
       a.moving |= MF_LAST_LEG;
       return;
     }
