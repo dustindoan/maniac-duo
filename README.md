@@ -79,6 +79,20 @@ on one screen or create an online game and send the second link to your partner.
 For development, `bun run dev` builds the client and serves the local ROM to pages opened as
 http://localhost:8787/?devrom (localhost only), so you skip the file picker.
 
+## Deploy it
+
+On a box with Docker, behind a TLS front of its own (on Dustin's lab, Atoll's
+boxfront serves it as `maniac.coralstack.space`):
+
+```bash
+deploy/deploy.sh <ssh host>
+```
+
+It sends the committed tree (`git archive HEAD`) plus `deploy/`, so `rom/`, `out/`
+and `data/` never leave this machine, and it refuses if a ROM would be sent. On
+the box the relay listens on `127.0.0.1:8787`. Games live in a Docker volume and
+survive a redeploy. Each player still loads their own ROM in their own browser.
+
 ## Controls
 
 | | Keyboard (one player) | Same screen: player 1 / player 2 | Gamepad |
