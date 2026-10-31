@@ -3,7 +3,7 @@ import { Driver } from '../src/engine/driver';
 import { runRoute } from '../src/engine/route';
 import { Session } from '../src/engine/session';
 import { NES_BLACK, compose, drawBackground, drawCostume, surface } from '../src/gfx/nes';
-import { FRAME_H, FRAME_W, SCENE_H, ViewRenderer } from '../src/gfx/view';
+import { FRAME_H, FRAME_W, SCENE_H, SOLO_H, ViewRenderer } from '../src/gfx/view';
 import { haveRom, rom } from './rom-fixture';
 
 describe.skipIf(!haveRom)('view', () => {
@@ -127,5 +127,24 @@ describe.skipIf(!haveRom)('view', () => {
     shown = 0;
     for (let y = 0; y < SCENE_H; y++) for (let x = 0; x < roomW; x++) if (isRoom(shot, x, y)) shown++;
     expect(shown).toBe(0);
+  });
+
+  test("a phone's solo screen shows only its own player: the whole room, then their status line", () => {
+    const d = new Driver(new Session(rom(), { kids: ['bernard', 'michael'], skipIntro: true }));
+    runRoute(d, '1 go to 258');
+    const frame = surface(FRAME_W, FRAME_H);
+    const [mine, theirs] = new ViewRenderer(rom()).drawFrame(d.s, frame, (p) => (p === 1 ? 'Bernard' : 'Michael'), [1], 1);
+    expect(mine.shared).toBe(false);
+    expect(mine.area).toEqual({ x: 0, y: 0, w: FRAME_W, h: SOLO_H });
+    expect(mine.scene.h).toBe(SCENE_H); // not cropped, as a split half is
+    expect(mine.statusY).toBeGreaterThanOrEqual(mine.scene.y + SCENE_H);
+    expect(mine.statusY + 8).toBeLessThanOrEqual(SOLO_H);
+    // The other player's screen isn't drawn, so nothing on it can be pointed at.
+    expect(theirs.area.h).toBe(0);
+    const row = (y: number) => frame.px.subarray(y * FRAME_W, (y + 1) * FRAME_W);
+    let status = 0;
+    for (let y = mine.statusY; y < mine.statusY + 8; y++) status += row(y).filter((c) => c !== NES_BLACK).length;
+    expect(status).toBeGreaterThan(0);
+    for (let y = SOLO_H; y < FRAME_H; y++) expect(row(y).every((c) => c === NES_BLACK)).toBe(true);
   });
 });

@@ -18,7 +18,10 @@ describe.skipIf(!haveRom)('player interface', () => {
     expect(ui.focus).toBeNull();
     expect(ui.status()).toBe('Bernard^');
     ui.press('a');
-    expect(sent).toEqual([]); // A does nothing with nothing chosen
+    expect(sent).toEqual([]); // A with nothing chosen opens the items, and B closes them
+    expect(ui.inventoryOpen).toBe(true);
+    ui.press('b');
+    expect(ui.inventoryOpen).toBe(false);
 
     ui.press('b');
     expect(ui.focus).toBe(ui.options[0].target);

@@ -2,7 +2,9 @@
 // with the original 224px room view, cropped to 118 of its 128 rows to keep their kid in view, with
 // dialogue and status drawn over the scene. When everyone watches one scene (the intro, a world
 // cutscene, a player's cut-away), it fills the screen in the original arrangement: dialogue, then
-// the whole 224x128 room, with nothing below it. Indexed NES colours.
+// the whole 224x128 room, with nothing below it. A phone shows only its own player (solo): the same
+// arrangement with their status line under the room, and the empty rows below cut off (SOLO_H).
+// Indexed NES colours.
 
 import type { Actor } from '../engine/actor';
 import type { Engine, LocalObj } from '../engine/engine';
@@ -25,6 +27,9 @@ export const GAP = 4;
 const LINE = 8;
 /** Shared screen: dialogue lines, then the room; the rest stays black, as on the NES. */
 const SHARED_SCENE_Y = 5 * LINE;
+/** Solo screen: the shared arrangement, then the status line; the frame rows shown stop here. */
+const SOLO_STATUS_Y = SHARED_SCENE_Y + SCENE_H + LINE / 2;
+export const SOLO_H = SOLO_STATUS_Y + LINE + LINE / 2;
 
 export const WHITE = 0x30;
 export const GREY = 0x10;
@@ -135,7 +140,7 @@ export class ViewRenderer {
   private patterns = new Map<number, Uint8Array>();
   private bgCache = new Map<string, Background>();
   font: Font;
-  /** The last split-screen picture, for the fade into a "Meanwhile..." card. */
+  /** The last split (or solo) picture, for the fade into a "Meanwhile..." card. */
   private lastSplit: Uint8Array | null = null;
 
   constructor(private rom: Rom) {
@@ -158,15 +163,15 @@ export class ViewRenderer {
 
   /**
    * Draw the whole frame; `status` gives each player's status line, and `viewers` are the players
-   * watching this screen (they're told "Meanwhile..." only if none of them is in the scene).
-   * Returns what each player sees.
+   * watching this screen (they're told "Meanwhile..." only if none of them is in the scene). With
+   * `solo`, only that player's screen is drawn, in the top SOLO_H rows. Returns what each player sees.
    */
-  drawFrame(s: Session, dst: Surface, status: (player: number) => string, viewers?: number[]): View[] {
-    return s.meanwhile > 0 ? this.drawMeanwhile(s, dst, status, viewers) : this.drawWorld(s, dst, status);
+  drawFrame(s: Session, dst: Surface, status: (player: number) => string, viewers?: number[], solo = 0): View[] {
+    return s.meanwhile > 0 ? this.drawMeanwhile(s, dst, status, viewers, solo) : this.drawWorld(s, dst, status, solo);
   }
 
-  /** Both halves, or the one scene everyone watches. */
-  private drawWorld(s: Session, dst: Surface, status: (player: number) => string): View[] {
+  /** Both halves (or only the solo player's screen), or the one scene everyone watches. */
+  private drawWorld(s: Session, dst: Surface, status: (player: number) => string, solo = 0): View[] {
     dst.px.fill(NES_BLACK);
     const players = s.engine.players.map((_, i) => i + 1);
     if (s.shared() !== null) {
@@ -174,6 +179,19 @@ export class ViewRenderer {
       const scene = this.drawScene(s, 1, dst, { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, 0);
       this.drawText(dst, s.dialogueFor(1), 3, LINE, -1);
       return players.map(() => ({ ...scene, shared: true, area, statusY: FRAME_H }));
+    }
+    if (solo) {
+      const scene = this.drawScene(s, solo, dst, { x: BORDER, y: SHARED_SCENE_Y, w: VIEW_W, h: SCENE_H }, 0);
+      this.drawText(dst, s.dialogueFor(solo), 3, LINE, -1);
+      this.font.draw(dst, status(solo).slice(0, 32), 0, SOLO_STATUS_Y, YELLOW);
+      (this.lastSplit ??= new Uint8Array(dst.px.length)).set(dst.px);
+      // The other player isn't on this screen: nothing of theirs to point at.
+      const nowhere = { x: 0, y: FRAME_H, w: 0, h: 0 };
+      return players.map((p) =>
+        p === solo
+          ? { ...scene, shared: false, area: { x: 0, y: 0, w: FRAME_W, h: SOLO_H }, statusY: SOLO_STATUS_Y }
+          : { room: 0, scene: nowhere, scrollX: 0, scrollY: 0, actors: [], shared: false, area: nowhere, statusY: FRAME_H },
+      );
     }
     const views = players.map((p, i) => {
       const area = { x: 0, y: i * (HALF_H + GAP), w: FRAME_W, h: HALF_H };
@@ -193,14 +211,14 @@ export class ViewRenderer {
    * The card before a scene everyone watches: the split screen fades out, "Meanwhile..." holds,
    * and the scene fades in. The world is paused throughout (Session.meanwhile counts it down).
    */
-  private drawMeanwhile(s: Session, dst: Surface, status: (player: number) => string, viewers = s.engine.players.map((_, i) => i + 1)): View[] {
+  private drawMeanwhile(s: Session, dst: Surface, status: (player: number) => string, viewers = s.engine.players.map((_, i) => i + 1), solo = 0): View[] {
     const left = s.meanwhile;
     const total = 2 * MEANWHILE.fade + s.card.hold;
     const away = viewers.every((p) => !s.card.present[p - 1]);
     let views: View[];
     if (left <= MEANWHILE.fade) {
       // Fading in: the scene, a step brighter each frame.
-      views = this.drawWorld(s, dst, status);
+      views = this.drawWorld(s, dst, status, solo);
       fade(dst, left);
     } else {
       dst.px.fill(NES_BLACK);

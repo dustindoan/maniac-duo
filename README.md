@@ -117,7 +117,7 @@ survive a redeploy. Each player still loads their own ROM in their own browser.
 | | Keyboard (one player) | Same screen: player 1 / player 2 | Gamepad |
 |---|---|---|---|
 | Walk | arrows or WASD | WASD / arrows | D-pad or stick |
-| Do what's shown | Z, Space, Enter | F / L | A |
+| Do what's shown (nothing shown: Items) | Z, Space, Enter | F / L | A |
 | Next suggestion | X, Shift | G / K | B |
 | Items | C, Tab | C / O | Select or Y |
 | Skip cutscene | Esc | Esc | Start |
@@ -126,8 +126,11 @@ survive a redeploy. Each player still loads their own ROM in their own browser.
 
 Nothing is chosen until you press B, which steps through what's nearby ("Pull door mat…"; the
 ellipsis means B has more) and back to nothing. The status line under your half says what A will
-do. Mouse and touch work too: click the floor to walk, click a thing for its verbs. On a touch
-screen, buttons under the game (beside it, held sideways) open Items, skip cutscenes and mute.
+do; when it only names your kid, A opens your items. Mouse and touch work too: click the floor to
+walk, click a thing for its verbs.
+
+On a phone you see only your own kid's screen, with a see-through D-pad, B and A over it that work
+like the keyboard, and Skip and Mute in the top corner. Tapping the game still works.
 
 ## Test it
 
