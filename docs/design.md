@@ -9,7 +9,8 @@ Each half is the original 224-pixel room view between black borders, showing 118
 dialogue and status lines are drawn over the scene. When everyone has to watch the same thing (the
 intro, a world cutscene, or a player's cutscene that cuts away to another room), the split goes
 away and that scene fills the screen in the original arrangement: dialogue, then the whole room,
-with nothing below it. Each player controls exactly one kid. Dave is still in the game, but
+with nothing below it. A phone in an online game shows only its own player, in that same
+arrangement with their status line under the room (`SOLO_H` rows), and an on-screen D-pad, B and A. Each player controls exactly one kid. Dave is still in the game, but
 nobody controls him: after the intro he goes on ahead, and waits in the dungeon to hold the loose
 brick for whoever gets caught (see [Our additions to the story](#our-additions-to-the-story)).
 

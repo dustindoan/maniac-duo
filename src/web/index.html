@@ -14,8 +14,6 @@
         --line: #333;
         /* The status line under the game screen. */
         --status-h: 28px;
-        /* Room kept on each side of the game for the touch buttons, held sideways. */
-        --touch-w: 104px;
       }
       * {
         box-sizing: border-box;
@@ -192,7 +190,8 @@
         border: none;
         padding: 0;
       }
-      /* One NES screen (256x240), shown at 4:3 like a TV, as large as the window allows. */
+      /* One NES screen (256x240), shown at 4:3 like a TV, as large as the window allows. A phone's
+         solo screen is fewer rows, so wider: the game sets --aspect from the frame it draws. */
       body.playing main {
         max-width: none;
         height: 100vh;
@@ -215,11 +214,12 @@
         justify-content: center;
       }
       #screen {
+        --aspect: 4 / 3;
         display: block;
-        width: min(100vw, calc((100vh - var(--status-h)) * 4 / 3));
-        width: min(100vw, calc((100dvh - var(--status-h)) * 4 / 3));
+        width: min(100vw, calc((100vh - var(--status-h)) * var(--aspect)));
+        width: min(100vw, calc((100dvh - var(--status-h)) * var(--aspect)));
         height: auto;
-        aspect-ratio: 4 / 3;
+        aspect-ratio: var(--aspect);
         image-rendering: pixelated;
         background: #000;
         touch-action: none;
@@ -237,40 +237,102 @@
         white-space: nowrap;
         text-overflow: ellipsis;
       }
-      /* Touch screens: buttons for what the keyboard does, under the game (beside it, held sideways). */
+      /* Touch screens: a see-through gamepad over the game: D-pad, B and A as on the controller. */
       #touch {
         display: none;
-        gap: 10px;
-        justify-content: center;
-        padding: 8px 16px 12px;
       }
       body.touch #touch {
-        display: flex;
+        display: block;
+      }
+      #touch > * {
+        position: fixed;
+        bottom: calc(20px + env(safe-area-inset-bottom));
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        touch-action: none;
       }
       #touch button {
-        min-width: 84px;
-        min-height: 48px;
+        background: rgb(255 255 255 / 0.14);
+        border: 1px solid rgb(255 255 255 / 0.3);
+        color: rgb(255 255 255 / 0.75);
+      }
+      #dpad i,
+      #dpad::after {
+        background: rgb(255 255 255 / 0.18);
+      }
+      #touch button.on,
+      #dpad i.on {
+        background: rgb(255 255 255 / 0.45);
+      }
+      #dpad {
+        left: calc(20px + env(safe-area-inset-left));
+        width: 144px;
+        height: 144px;
+        display: grid;
+        grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+      }
+      #dpad::after {
+        content: '';
+        grid-area: 2 / 2;
+      }
+      #dpad [data-d='up'] {
+        grid-area: 1 / 2;
+        border-radius: 8px 8px 0 0;
+      }
+      #dpad [data-d='down'] {
+        grid-area: 3 / 2;
+        border-radius: 0 0 8px 8px;
+      }
+      #dpad [data-d='left'] {
+        grid-area: 2 / 1;
+        border-radius: 8px 0 0 8px;
+      }
+      #dpad [data-d='right'] {
+        grid-area: 2 / 3;
+        border-radius: 0 8px 8px 0;
+      }
+      #touch-ab {
+        right: calc(20px + env(safe-area-inset-right));
+        display: flex;
+        gap: 18px;
+        align-items: flex-end;
+      }
+      #touch-ab button {
+        width: 64px;
+        height: 64px;
+        padding: 0;
+        border-radius: 50%;
+        font-weight: 700;
+      }
+      /* A sits higher, to the right of B, as on the controller. */
+      #touch-a {
+        margin-bottom: 32px;
+      }
+      /* Mute and Skip: up in the corner across from Back, clear of the game and the thumbs. */
+      #touch-mid {
+        top: calc(8px + env(safe-area-inset-top));
+        right: calc(8px + env(safe-area-inset-right));
+        bottom: auto;
+        display: flex;
+        gap: 10px;
+      }
+      #touch-mid button {
+        padding: 4px 12px;
+        font-size: 12px;
+        border-radius: 14px;
       }
       @media (orientation: portrait) {
+        /* Held upright: the game at the top, under Back, and the gamepad below it for both thumbs. */
+        body.playing.touch #game {
+          justify-content: flex-start;
+          padding-top: 48px;
+        }
         body.touch #game-status {
           white-space: normal;
           height: auto;
           line-height: 1.4;
           padding: 6px 16px;
-        }
-      }
-      @media (orientation: landscape) {
-        body.touch #touch {
-          position: fixed;
-          right: 8px;
-          top: 50%;
-          transform: translateY(-50%);
-          flex-direction: column;
-          padding: 0;
-        }
-        body.touch #screen {
-          width: min(100vw - 2 * var(--touch-w), calc((100vh - var(--status-h)) * 4 / 3));
-          width: min(100vw - 2 * var(--touch-w), calc((100dvh - var(--status-h)) * 4 / 3));
         }
       }
       footer {
@@ -338,9 +400,9 @@
         <canvas id="screen" width="256" height="308"></canvas>
         <p id="game-status"></p>
         <div id="touch">
-          <button id="touch-items">Items</button>
-          <button id="touch-skip">Skip</button>
-          <button id="touch-sound">Mute</button>
+          <div id="dpad" aria-label="D-pad"><i data-d="up"></i><i data-d="left"></i><i data-d="right"></i><i data-d="down"></i></div>
+          <div id="touch-mid"><button id="touch-sound">Mute</button><button id="touch-skip">Skip</button></div>
+          <div id="touch-ab"><button id="touch-b">B</button><button id="touch-a">A</button></div>
         </div>
       </section>
       <footer class="lede small">Free software under the GPL: <a href="https://github.com/dustindoan/maniac-duo">source code</a>. <em>Maniac Mansion</em> is © Lucasfilm Games; bring your own copy.</footer>

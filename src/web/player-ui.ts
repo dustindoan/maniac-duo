@@ -1,5 +1,6 @@
-// One player's interface: D-pad walking, focus + A/B verbs, inventory overlay, item-in-hand,
-// with mouse/touch as a fallback. Produces engine commands; never touches engine state.
+// One player's interface: D-pad walking, focus + A/B verbs (A with nothing chosen opens the items),
+// inventory overlay, item-in-hand, with mouse/touch as a fallback. Produces engine commands; never
+// touches engine state.
 
 import type { Engine } from '../engine/engine';
 import type { Command, Session } from '../engine/session';
@@ -125,9 +126,13 @@ export class PlayerUI {
       } else if (this.inHand) this.inHand = null;
       return;
     }
-    // A: do the suggestion on screen.
+    // A: do the suggestion on screen. With nothing chosen and nothing in hand (the status line only
+    // names the kid), it opens the items.
     const o = this.options[this.optionIndex];
-    if (!o) return;
+    if (!o) {
+      if (!this.inHand) this.press('items');
+      return;
+    }
     if (this.inHand) {
       const s = pairSentence(e, this.inHand.item, o.target.id);
       this.sentence(s.verb, s.a, s.b);

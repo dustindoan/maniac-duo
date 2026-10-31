@@ -2,7 +2,7 @@
 import { Lockstep, stateHash } from '../engine/lockstep';
 import type { Command, KidName } from '../engine/session';
 import { surface, toRGBA } from '../gfx/nes';
-import { FRAME_H, FRAME_W, ViewRenderer } from '../gfx/view';
+import { FRAME_H, FRAME_W, SOLO_H, ViewRenderer } from '../gfx/view';
 import { crc32 } from '../rom/crc32';
 import { type Rom, identify, loadRom, stripHeader } from '../rom/rom';
 import { RULES } from '../story';
@@ -16,6 +16,7 @@ import { Footfalls } from './footsteps';
 import { Voices } from './voices';
 import { type Button, type Pad, PlayerUI } from './player-ui';
 import { forgetRom, loadStoredRom, storeRom } from './rom-store';
+import { TouchPad } from './touchpad';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -34,7 +35,8 @@ function setMessage(id: string, text: string) {
   $(id).textContent = text;
 }
 
-// Touch screens get buttons for what the keyboard does (Items, Skip, Mute) and their own hints.
+// Touch screens get an on-screen gamepad (D-pad, A, B, with Skip and Mute), their own hints, and,
+// with one player, only that player's screen.
 const touch = () => document.body.classList.contains('touch');
 if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
 window.addEventListener('pointerdown', (ev) => ev.pointerType === 'touch' && document.body.classList.add('touch'));
@@ -118,6 +120,11 @@ class GameView {
   private ctx: CanvasRenderingContext2D;
   private image: ImageData;
   private keys = new Set<string>();
+  /** On a phone with one player, only their screen is shown (no split). */
+  private solo: number;
+  /** The on-screen gamepad, and the player it drives: whoever touched the screen last. */
+  private touchPad!: TouchPad;
+  private padPlayer: number;
   /** Restarts seen, to reset the interface when the game starts over. */
   private restarts = 0;
 
@@ -131,8 +138,12 @@ class GameView {
     this.renderer = new ViewRenderer(rom!);
     this.uis = [1, 2].map((p) => new PlayerUI(p, () => this.ls.session, controls.send));
     const canvas = $<HTMLCanvasElement>('screen');
+    this.solo = touch() && controls.local.length === 1 ? controls.local[0] : 0;
+    this.padPlayer = controls.local[0];
     canvas.width = FRAME_W;
-    canvas.height = FRAME_H;
+    canvas.height = this.solo ? SOLO_H : FRAME_H;
+    // The NES's pixels are shown 1.25 times as wide as tall: 256x240 makes 4:3.
+    canvas.style.setProperty('--aspect', `${FRAME_W * 1.25} / ${canvas.height}`);
     this.ctx = canvas.getContext('2d')!;
     this.image = this.ctx.createImageData(FRAME_W, FRAME_H);
     this.bindInput(canvas);
@@ -189,7 +200,7 @@ class GameView {
   }
 
   private frame = () => {
-    const views = this.renderer.drawFrame(this.ls.session, this.surf, (p) => this.statusOf(p), this.controls.local);
+    const views = this.renderer.drawFrame(this.ls.session, this.surf, (p) => this.statusOf(p), this.controls.local, this.solo);
     for (const ui of this.uis) {
       ui.view = views[ui.player - 1];
       if (this.isLocal(ui.player)) ui.drawOverlay(this.surf, this.renderer.font);
@@ -226,6 +237,10 @@ class GameView {
       const b = (n: number) => !!gp.buttons[n]?.pressed;
       dx ||= (b(15) ? 1 : 0) - (b(14) ? 1 : 0) || (Math.abs(gp.axes[0] ?? 0) > 0.5 ? Math.sign(gp.axes[0]) : 0);
       dy ||= (b(13) ? 1 : 0) - (b(12) ? 1 : 0) || (Math.abs(gp.axes[1] ?? 0) > 0.5 ? Math.sign(gp.axes[1]) : 0);
+    }
+    if (this.controls.local[i] === this.padPlayer) {
+      dx ||= this.touchPad.pad.dx;
+      dy ||= this.touchPad.pad.dy;
     }
     return { dx, dy };
   }
@@ -308,30 +323,31 @@ class GameView {
     const locate = (ev: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
       const x = Math.floor(((ev.clientX - r.left) / r.width) * FRAME_W);
-      const y = Math.floor(((ev.clientY - r.top) / r.height) * FRAME_H);
+      const y = Math.floor(((ev.clientY - r.top) / r.height) * canvas.height);
       const ui = this.uis.find(({ view: v }) => v && !v.shared && y >= v.area.y && y < v.area.y + v.area.h);
       return { p: ui?.player ?? 0, x, y };
     };
-    // The touch buttons act for whoever touched the screen last (on one screen, either player).
-    let last = this.controls.local[0];
     canvas.addEventListener('pointerdown', (ev) => {
       this.audio.unlock();
       const { p, x, y } = locate(ev);
       if (p && this.isLocal(p)) {
-        last = p;
+        this.padPlayer = p;
         this.uis[p - 1].click(x, y);
       }
     });
     // iPhones only let sound start when a touch ends.
     canvas.addEventListener('pointerup', () => this.audio.unlock());
-    const button = (id: string, act: () => void) =>
-      ($(id).onclick = () => {
-        this.audio.unlock();
-        act();
-      });
-    button('touch-items', () => this.uis[last - 1].press('items'));
-    button('touch-skip', () => this.uis[this.skipper() - 1].press('skip'));
-    button('touch-sound', () => this.toggleMute());
+    // The on-screen gamepad drives whoever touched the screen last (on one screen, either player).
+    this.touchPad = new TouchPad($('dpad'), { a: $('touch-a'), b: $('touch-b') }, {
+      press: (b) => this.uis[this.padPlayer - 1].press(b),
+      step: (dx, dy) => {
+        const ui = this.uis[this.padPlayer - 1];
+        if (ui.overlayOpen) ui.navigate(dx, dy);
+      },
+    });
+    $('touch').addEventListener('pointerup', () => this.audio.unlock());
+    $('touch-skip').onclick = () => this.uis[this.skipper() - 1].press('skip');
+    $('touch-sound').onclick = () => this.toggleMute();
     $('touch-sound').textContent = this.audio.muted ? 'Unmute' : 'Mute';
     canvas.addEventListener('pointermove', (ev) => {
       const { p, x, y } = locate(ev);
@@ -356,7 +372,7 @@ function startLocal(kids: KidName[]) {
   setMessage(
     'game-status',
     touch()
-      ? 'Two players, one screen: each taps in their own half.'
+      ? 'Two players, one screen: tap your own half. The gamepad drives whoever tapped last.'
       : 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes, V voices.',
   );
   // Keep to the real clock: timers fire late or early, and sound should neither lag nor stutter.
@@ -415,8 +431,8 @@ function startOnline(token: string) {
           setMessage(
             'game-status',
             touch()
-              ? `${you} Tap to walk; tap people and things to use them.`
-              : `${you} Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip, M mute, V voices. Gamepads work too.`,
+              ? `${you} D-pad walks. A does what's shown, or opens your things; B picks what to do.`
+              : `${you} Arrows/WASD walk, Z/Space act (or open items), X next verb, C items, Esc skip, M mute, V voices. Gamepads work too.`,
           );
         }
       };
