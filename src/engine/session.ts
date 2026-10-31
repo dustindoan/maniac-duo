@@ -2,6 +2,7 @@
 // and applies player commands at frame boundaries. Deterministic given (seed, command log).
 
 import type { Rom } from '../rom/rom';
+import { Scorer } from '../score/scorer';
 import { storyFor } from '../story';
 import { Engine, NUM_ACTORS, V } from './engine';
 
@@ -69,6 +70,8 @@ export class Session {
   meanwhile = 0;
   card: Card = { hold: 0, present: [] };
   private wasShared = true;
+  /** The high-score board's points for this run of the game (src/score). */
+  scorer = new Scorer();
   /** Sound-chip writes from the frame the scene began, played once it appears. */
   private heldSound: number[][] = [];
 
@@ -97,6 +100,7 @@ export class Session {
   private restart() {
     this.restarts++;
     this.engine = this.newEngine();
+    this.scorer = new Scorer();
     this.selectStage = 0;
     this.selectWait = 0;
     this.ready = false;
@@ -121,6 +125,7 @@ export class Session {
         this.restart();
         return;
       }
+      if (this.ready) this.scorer.update(e, this.frame);
       if (this.heldSound.length) e.sound.out.unshift(...this.heldSound.splice(0));
       // A scene everyone watches takes over the screen: hold the world for the card.
       const shared = this.ready && this.shared() !== null;
@@ -175,6 +180,10 @@ export class Session {
       case 'sentence':
         return e.sentence(cmd.player, cmd.verb, cmd.a, cmd.b ?? 0);
       case 'skip': {
+        // Kid selection is driven here, not by the players, and its script keeps an override set
+        // outside any cutscene: skipping there would jump past it and leave the game frozen. So
+        // before the players take over, only a running cutscene (the title, the intro) skips.
+        if (!this.ready && !e.ctxs[0].cutscene) return false;
         // Your own cutscene first, then the one everyone is watching. During the card, skipping
         // ends the card, and the scene too if it can be skipped.
         const away = e.cutAway();

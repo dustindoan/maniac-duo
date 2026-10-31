@@ -79,10 +79,109 @@
         padding: 32px;
         text-align: center;
       }
-      #invite input {
+      #gamepage input[readonly] {
         width: 100%;
         min-width: 0;
         flex: 1;
+      }
+      h2 {
+        font-size: 17px;
+        margin: 0 0 8px;
+      }
+      section + section,
+      #board {
+        margin-top: 20px;
+      }
+      .small {
+        font-size: 13px;
+      }
+      button.link {
+        background: none;
+        border: none;
+        padding: 0;
+        color: var(--muted);
+        text-decoration: underline;
+      }
+      a {
+        color: var(--accent);
+      }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      /* The high-score board, after the Meteor Mess machine: drawn from your ROM when it's loaded. */
+      .mm-rom canvas {
+        display: block;
+        width: 100%;
+        max-width: 576px;
+        margin: 0 auto;
+        image-rendering: pixelated;
+        cursor: pointer;
+      }
+      .mm {
+        max-width: 576px;
+        margin: 0 auto;
+        background: #bcbcbc;
+        border: 6px solid #f878f8;
+        outline: 3px solid #a80020;
+        outline-offset: -12px;
+        padding: 20px 28px 24px;
+        text-transform: uppercase;
+        font-weight: 800;
+        text-shadow: 3px 3px 0 #545454;
+        text-align: center;
+      }
+      .mm h2 {
+        color: #f8b800;
+        font-size: 30px;
+        letter-spacing: 0.08em;
+        margin: 0;
+      }
+      .mm p {
+        color: #fcfcfc;
+        font-size: 20px;
+        margin: 4px 0 12px;
+        padding-bottom: 8px;
+        border-bottom: 6px double #fcfcfc;
+      }
+      .mm-rows {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .mm-rows li {
+        font-size: 20px;
+        white-space: pre;
+        color: #fcfcfc;
+      }
+      .mm-rows a {
+        color: inherit;
+        text-decoration: none;
+      }
+      .mm-rows a:hover {
+        color: #f8b800;
+      }
+      .timeline {
+        padding-left: 0;
+        list-style: none;
+        white-space: pre;
+      }
+      #back {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 1;
+        opacity: 0.55;
+        padding: 4px 10px;
+        font-size: 13px;
+      }
+      #back:hover,
+      #back:focus {
+        opacity: 1;
       }
       #game {
         background: none;
@@ -140,34 +239,53 @@
       <h1>MANIAC DUO</h1>
       <p class="lede">Two kids, two players, one mansion. Runs the original NES game scripts from your own ROM.</p>
 
-      <section id="rom" hidden>
-        <div id="rom-drop">
-          <p>Drop your <strong>Maniac Mansion (USA)</strong> NES ROM here, or</p>
-          <input id="rom-file" type="file" accept=".nes,.bin" />
-          <p class="lede">It stays in this browser. Nothing from it is uploaded.</p>
+      <section id="home" hidden>
+        <p id="activity" class="lede"></p>
+        <div id="rom" hidden>
+          <div id="rom-drop">
+            <p>To play, you need your own <strong>Maniac Mansion (USA)</strong> NES ROM, and so does your partner. Drop it here, or</p>
+            <input id="rom-file" type="file" accept=".nes,.bin" />
+            <p class="lede">It stays in this browser. Nothing from it is uploaded.</p>
+          </div>
+          <p id="rom-error" class="error"></p>
         </div>
-        <p id="rom-error" class="error"></p>
+        <div id="lobby" hidden>
+          <div class="row">
+            <label>Player 1 <select id="kid-1"><option value="bernard" selected>Bernard</option><option value="michael">Michael</option><option value="wendy">Wendy</option><option value="jeff">Jeff</option><option value="syd">Syd</option><option value="razor">Razor</option></select></label>
+            <label>Player 2 <select id="kid-2"><option value="bernard">Bernard</option><option value="michael" selected>Michael</option><option value="wendy">Wendy</option><option value="jeff">Jeff</option><option value="syd">Syd</option><option value="razor">Razor</option></select></label>
+          </div>
+          <p class="lede">Bernard and Michael have been played to the end. The other kids work, but may run into bugs nobody has found yet.</p>
+          <div class="row">
+            <button id="create-online" class="primary">Create online game</button>
+            <button id="play-local" class="link">or play both kids on this screen</button>
+          </div>
+          <p id="lobby-error" class="error"></p>
+        </div>
+        <div id="board"></div>
+        <p class="lede small"><button id="forget-rom" class="link" hidden>Forget my ROM</button></p>
       </section>
 
-      <section id="lobby" hidden>
+      <section id="gamepage" hidden>
+        <h2 id="gp-title"></h2>
+        <p id="gp-who" class="lede"></p>
+        <div id="gp-invite-row" class="row" hidden><span>Send to player 2</span><input id="gp-invite" readonly /><button id="gp-copy-invite">Copy</button></div>
+        <div class="row"><span>Your link</span><input id="gp-link" readonly /><button id="gp-copy-link">Copy</button></div>
+        <p class="lede">Each link is a seat: keep yours to come back. The mansion only moves while someone is playing.</p>
         <div class="row">
-          <label>Player 1 <select id="kid-1"><option value="bernard" selected>Bernard</option><option value="michael">Michael</option><option value="wendy">Wendy</option><option value="jeff">Jeff</option><option value="syd">Syd</option><option value="razor">Razor</option></select></label>
-          <label>Player 2 <select id="kid-2"><option value="bernard">Bernard</option><option value="michael" selected>Michael</option><option value="wendy">Wendy</option><option value="jeff">Jeff</option><option value="syd">Syd</option><option value="razor">Razor</option></select></label>
+          <label>Your initials for the high-score board <input id="gp-initials" maxlength="3" size="4" autocomplete="off" /></label>
+          <button id="gp-save-initials">Save</button>
+          <span id="gp-initials-msg" class="lede"></span>
         </div>
-        <div class="row">
-          <button id="create-online" class="primary">Create online game</button>
-          <button id="play-local">Play here, two players on one screen</button>
-          <button id="forget-rom">Forget my ROM</button>
-        </div>
-        <p id="lobby-error" class="error"></p>
-        <div id="invite" hidden>
-          <div class="row"><span>Your link</span><input id="link-1" readonly /><button id="copy-1">Copy</button><button id="play-1" class="primary">Play</button></div>
-          <div class="row"><span>Send to player 2</span><input id="link-2" readonly /><button id="copy-2">Copy</button></div>
-          <p class="lede">Each link is a seat. Come and go as you like: the mansion only moves while someone is playing.</p>
-        </div>
+        <p id="gp-score" class="lede"></p>
+        <div id="gp-rom"></div>
+        <div class="row"><button id="gp-play" class="primary">Play</button><a href="#">Front page</a></div>
+        <p id="gp-error" class="error"></p>
       </section>
+
+      <section id="summary" hidden></section>
 
       <section id="game" hidden>
+        <button id="back" title="Back to this game's page">&lsaquo; Game</button>
         <canvas id="screen" width="256" height="308"></canvas>
         <p id="game-status"></p>
       </section>

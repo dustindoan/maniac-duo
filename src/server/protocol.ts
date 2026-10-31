@@ -2,6 +2,8 @@
 // commands into ticks, and every client runs the same deterministic engine over that log.
 
 import type { Command } from '../engine/session';
+import type { Milestone } from '../score/scorer';
+import { pointsOf } from '../score/table';
 import type { KidName } from '../engine/session';
 
 /** Engine frames per second; one server tick advances every client's engine by one frame. */
@@ -35,11 +37,53 @@ export type ServerMessage =
   | { type: 'hash'; player: number; tick: number; hash: string }
   | { type: 'error'; message: string };
 
-export type ClientMessage = { type: 'cmd'; cmd: Command } | { type: 'hash'; tick: number; hash: string } | { type: 'ping' };
+export type ClientMessage =
+  | { type: 'cmd'; cmd: Command }
+  | { type: 'hash'; tick: number; hash: string }
+  /** Every milestone this run of the game has reached (src/score), sent when one is added. */
+  | { type: 'score'; reached: Milestone[] }
+  | { type: 'ping' };
 
 export interface CreateGameRequest {
   kids: KidName[];
   romCrc: number;
+}
+
+/** A seat holder's view of their game. Seat 1, who created it, can always get seat 2's invite. */
+export interface SeatInfo {
+  game: GameInfo;
+  player: number;
+  online: number[];
+  invite?: string;
+}
+
+/** A line on the high-score board. */
+export interface ScoreRow {
+  game: string;
+  kids: KidName[];
+  /** Each seat's initials, '' until they've entered some. */
+  initials: string[];
+  points: number;
+  won: boolean;
+  /** Minutes the game has been played. */
+  minutes: number;
+  /** When the score was last raised. */
+  at: number;
+}
+
+/** What anyone may see of a game on the board: no seat links, no moves. */
+export interface GameSummary extends ScoreRow {
+  max: number;
+  reached: Milestone[];
+  createdAt: number;
+}
+
+/** How busy the server is, for the lobby. */
+export interface Stats {
+  /** Games with someone connected. */
+  playing: number;
+  /** Seats connected, across those games. */
+  players: number;
 }
 
 export interface CreateGameResponse {
@@ -83,4 +127,33 @@ export function parseHash(raw: unknown): { tick: number; hash: string } | null {
   if (typeof r.tick !== 'number' || !Number.isInteger(r.tick) || r.tick < 0) return null;
   if (typeof r.hash !== 'string' || !/^[0-9a-f]{1,16}$/.test(r.hash)) return null;
   return { tick: r.tick, hash: r.hash };
+}
+
+/** Check a browser's score report against the points table; the points are worked out here. */
+export function parseScore(raw: unknown): { reached: Milestone[]; points: number; won: boolean } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const list = (raw as Record<string, unknown>).reached;
+  if (!Array.isArray(list) || list.length > 200) return null;
+  const reached: Milestone[] = [];
+  const ids = new Set<string>();
+  let points = 0;
+  for (const m of list) {
+    if (!m || typeof m !== 'object') return null;
+    const { id, tick } = m as Record<string, unknown>;
+    if (typeof id !== 'string' || typeof tick !== 'number' || !Number.isInteger(tick) || tick < 0 || ids.has(id)) return null;
+    const p = pointsOf(id);
+    if (p === null) return null;
+    ids.add(id);
+    points += p;
+    reached.push({ id, tick });
+  }
+  return { reached, points, won: ids.has('won') };
+}
+
+/** Initials for the board: one to three letters. */
+export function parseInitials(raw: unknown): string | null {
+  const v = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).initials : null;
+  if (typeof v !== 'string') return null;
+  const up = v.trim().toUpperCase();
+  return /^[A-Z]{1,3}$/.test(up) ? up : null;
 }
