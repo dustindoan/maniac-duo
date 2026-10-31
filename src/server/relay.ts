@@ -8,6 +8,8 @@ import { type ServerMessage, TICK_HZ } from './protocol';
 export interface Peer {
   player: number;
   send(msg: ServerMessage): void;
+  /** Drop the connection (another tab took the seat). */
+  close(reason: string): void;
 }
 
 export class Relay {
@@ -16,14 +18,18 @@ export class Relay {
   private pending: [number, Command][] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private persistEvery = TICK_HZ * 5;
+  /** Moves in the log, and how many it may hold. */
+  private logged: number;
 
   constructor(
     public gameId: string,
     private store: Store,
     startTick: number,
+    private maxLog = Infinity,
     private tickMs = 1000 / TICK_HZ,
   ) {
     this.tick = startTick;
+    this.logged = store.logLength(gameId);
   }
 
   online(): number[] {
@@ -31,6 +37,8 @@ export class Relay {
   }
 
   join(peer: Peer) {
+    // One connection per seat: the newest (a reload, another tab) takes over.
+    for (const p of this.peers) if (p.player === peer.player) p.close('This seat was opened somewhere else.');
     this.peers.add(peer);
     const game = this.store.game(this.gameId)!;
     peer.send({ type: 'welcome', player: peer.player, game: { id: game.id, kids: game.kids, seed: game.seed, romCrc: game.romCrc, rules: game.rules, createdAt: game.createdAt }, tick: this.tick, log: this.store.log(this.gameId), online: this.online() });
@@ -45,6 +53,7 @@ export class Relay {
   }
 
   submit(player: number, cmd: Command) {
+    if (this.logged + this.pending.length >= this.maxLog) return;
     this.pending.push([player, cmd]);
   }
 
@@ -59,6 +68,7 @@ export class Relay {
     const cmds = this.pending;
     this.pending = [];
     if (cmds.length) this.store.append(this.gameId, this.tick, cmds);
+    this.logged += cmds.length;
     if (cmds.length || this.tick % this.persistEvery === 0) this.store.setTick(this.gameId, this.tick);
     this.broadcast({ type: 'tick', tick: this.tick, cmds });
   }

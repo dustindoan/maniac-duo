@@ -118,6 +118,45 @@ someone found the old rusty key. With two players, one of them was left pushing 
   door shuts behind them, as in the original); then he goes back to his spot.
 - If Dave isn't in the dungeon, the brick works exactly as the original.
 
+## Running it in public
+
+The relay is cheap: a game costs a 15 Hz timer while someone is connected and a few hundred
+bytes per minute of moves (a 41-minute playtest logged 3,156 moves, about 120 KB). What a public
+relay has to stop is scripts, so `src/server/limits.ts` caps how fast an address may create games
+(5, then one every two minutes) and how many everyone may create in an hour, how many games are
+played at once (500: on the lab box the clock held 14.3 of its 15 ticks a second there, under
+twice the moves real players send), connections per address, and
+each connection's message rate and size (well above the busiest playtest: 15 moves in a second).
+A game's log stops at 60,000 moves, there are no new games past 4 GB of database, and games
+nobody ever joined are deleted after a day. One connection holds a seat: a new tab takes over.
+The database doesn't wait for the disk on each commit (WAL with `synchronous = NORMAL`): on the
+lab box a flushed commit took 8 ms, which held the whole relay to about 120 writes a second and
+fell behind at 100 games. A power cut can lose the last moment of moves; a crash loses nothing.
+Visitors' addresses come from the box's front (Caddy believes the switchboard's PROXY header and
+sets X-Forwarded-For), and only from loopback.
+
+There are no accounts: a seat link is the credential, and needing the ROM already keeps out
+anyone who isn't playing.
+
+## The high-score board
+
+After the Meteor Mess arcade machine in the game room (room 39, which a quarter in the machine
+shows for five seconds). Points (`src/score/table.ts`) come from items (each object a player's
+kid first holds: 25) and story beats (the front door, getting out of the dungeon, calling the
+Meteor Police, Purple Tentacle giving in, a record or book deal, freeing Dr. Fred), 5,975 in all.
+The scorer runs in each browser beside the engine, from the world's state alone, so every client
+of a game agrees; a restart starts a new run.
+
+The server has no ROM, so it can't score a game itself: browsers report the milestones reached,
+and the relay works out the points from the table, refusing unknown or repeated milestones and
+ticks its clock hasn't reached. A forged score is still possible, but a game is entirely
+determined by its seed and its log, which the relay keeps, so any score can be checked by
+replaying it (not built yet). The table holds only numbers and our own words: an item's name on a
+game's page comes from the viewer's ROM.
+
+With your ROM loaded, the board is drawn from it: the machine's title from room 39, its panel
+stretched to ten rows, and the game's font. Without one it's an HTML look-alike.
+
 ## Sound
 
 `src/sound/driver.ts` is the game's own sound driver (ported from ScummVM's NES player). It runs
@@ -240,6 +279,8 @@ simulate.
   surface script assumptions about a single ego; the fix would be a new entry in `WORLD_SCRIPTS`
   or `PLAYER_SCOPED`.
 - **Only the USA ROM** is supported.
+- **Not built yet:** replays and watching games live (both would replay a game's log in a viewer's
+  browser), and checking scores by replay.
 - **Seat tokens are bearer credentials.** That's fine for a private game between friends; there
   are no accounts.
 

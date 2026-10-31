@@ -6,7 +6,10 @@ import { FRAME_H, FRAME_W, ViewRenderer } from '../gfx/view';
 import { crc32 } from '../rom/crc32';
 import { type Rom, identify, loadRom, stripHeader } from '../rom/rom';
 import { RULES } from '../story';
-import type { CreateGameResponse, ServerMessage } from '../server/protocol';
+import type { CreateGameResponse, GameSummary, ScoreRow, SeatInfo, ServerMessage, Stats } from '../server/protocol';
+import type { Milestone } from '../score/scorer';
+import { MAX_POINTS } from '../score/table';
+import { renderBoard, renderSummary } from './board';
 import { TICK_HZ } from '../server/protocol';
 import { AudioOut } from './audio';
 import { Footfalls } from './footsteps';
@@ -19,8 +22,10 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 let rom: Rom | null = null;
 let romCrc = 0;
 
-function show(screen: 'rom' | 'lobby' | 'game') {
-  for (const s of ['rom', 'lobby', 'game']) $(s).hidden = s !== screen;
+type Screen = 'home' | 'gamepage' | 'summary' | 'game';
+
+function show(screen: Screen) {
+  for (const s of ['home', 'gamepage', 'summary', 'game']) $(s).hidden = s !== screen;
   // While playing, the screen takes the whole window.
   document.body.classList.toggle('playing', screen === 'game');
 }
@@ -42,17 +47,29 @@ async function acceptRom(bytes: Uint8Array): Promise<boolean> {
   return true;
 }
 
-async function initRom() {
+/** Your ROM, if this browser has it (or, in development, the server's local one). */
+async function loadRomQuietly(): Promise<boolean> {
+  if (rom) return true;
   const stored = await loadStoredRom();
   if (stored && (await acceptRom(stored))) return true;
   if (new URLSearchParams(location.search).has('devrom')) {
     const res = await fetch('/dev/rom').catch(() => null);
     if (res?.ok && (await acceptRom(new Uint8Array(await res.arrayBuffer())))) return true;
   }
-  show('rom');
-  return new Promise<boolean>((resolve) => {
+  return false;
+}
+
+/** Ask for the ROM where it's needed (the front page, or a game page), until a good one is given. */
+function askForRom(where: HTMLElement, before: HTMLElement | null = null): Promise<void> {
+  const box = $('rom');
+  where.insertBefore(box, before);
+  box.hidden = false;
+  return new Promise<void>((resolve) => {
     const take = async (f: File | undefined) => {
-      if (f && (await acceptRom(new Uint8Array(await f.arrayBuffer())))) resolve(true);
+      if (f && (await acceptRom(new Uint8Array(await f.arrayBuffer())))) {
+        box.hidden = true;
+        resolve();
+      }
     };
     $<HTMLInputElement>('rom-file').onchange = (ev) => take((ev.target as HTMLInputElement).files?.[0]);
     const drop = $('rom-drop');
@@ -86,6 +103,9 @@ class GameView {
   private theirs = new Map<number, string>();
   /** Called with this client's fingerprint, to share it (online games). */
   onHash: (tick: number, hash: string) => void = () => {};
+  /** Called with every milestone reached so far whenever one is added (online games: the board). */
+  onScore: (reached: Milestone[]) => void = () => {};
+  private reported = -1;
   /** Called once if another client's world differs from this one. */
   onDesync: (tick: number) => void = () => {};
   private desynced = false;
@@ -123,6 +143,7 @@ class GameView {
   /** Advance one tick: gather pads, let local UIs emit commands, run the engine frame. */
   advance(t: number, cmds: Command[]) {
     this.ls.advance(t, cmds);
+    this.reportScore();
     if (this.ls.session.restarts !== this.restarts) {
       this.restarts = this.ls.session.restarts;
       for (const ui of this.uis) ui.reset();
@@ -139,6 +160,14 @@ class GameView {
       for (const k of this.theirs.keys()) if (k < t) this.theirs.delete(k);
     }
     this.controls.local.forEach((p, i) => this.uis[p - 1].tick(this.pad(i)));
+  }
+
+  /** Report the score if it has changed (after a restart it starts again from nothing). */
+  reportScore() {
+    const reached = this.ls.session.scorer.reached;
+    if (reached.length === this.reported) return;
+    this.reported = reached.length;
+    this.onScore(reached);
   }
 
   /** Another client's fingerprint for tick `t`. */
@@ -289,8 +318,13 @@ class GameView {
 
 // ------------------------------------------------------------------ modes
 
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+const seatLink = (token: string) => `${location.origin}${location.pathname}${location.search}#t=${token}`;
+const copyButton = (button: string, input: string) => ($(button).onclick = () => navigator.clipboard?.writeText($<HTMLInputElement>(input).value));
+
 function startLocal(kids: KidName[]) {
   show('game');
+  $('back').onclick = () => confirm("Leave this game? A game on one screen isn't saved.") && location.reload();
   const queue: Command[] = [];
   const view = new GameView(kids, (Math.random() * 2 ** 31) | 1, RULES, { local: [1, 2], send: (c) => queue.push(c) });
   setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes, V voices.');
@@ -305,12 +339,14 @@ function startLocal(kids: KidName[]) {
 
 function startOnline(token: string) {
   show('game');
+  $('back').onclick = () => (location.hash = `t=${token}`);
   setMessage('game-status', 'Connecting…');
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/play?token=${encodeURIComponent(token)}`);
   let view: GameView | null = null;
   let me = 0;
   let pending: { tick: number; cmds: Command[] }[] = [];
   let catchingUp = true;
+  let replaced = false;
   const send = (cmd: Command) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'cmd', cmd }));
 
   ws.onmessage = (ev) => {
@@ -341,6 +377,9 @@ function startOnline(token: string) {
           catchingUp = false;
           for (const p of pending) if (p.tick > view!.ls.tick) view!.advance(p.tick, p.cmds);
           pending = [];
+          // Scores go to the board only once caught up, so a replay doesn't report every step again.
+          view!.onScore = (reached) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'score', reached }));
+          view!.reportScore();
           setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip, M mute, V voices. Gamepads work too.`);
         }
       };
@@ -351,33 +390,54 @@ function startOnline(token: string) {
       else view.advance(msg.tick, cmds);
     } else if (msg.type === 'presence' && view) view.online = new Set(msg.online);
     else if (msg.type === 'hash' && view) view.theirHash(msg.tick, msg.hash);
-    else if (msg.type === 'error') setMessage('game-status', msg.message);
+    else if (msg.type === 'error') {
+      replaced = true;
+      setMessage('game-status', msg.message);
+    }
   };
-  ws.onclose = () => setMessage('game-status', 'Disconnected. Reload to rejoin; the game waits for you.');
+  ws.onclose = (ev) => {
+    if (replaced) return;
+    if (!view && ev.code !== 1000) setMessage('game-status', 'The server is busy or this link has expired. Try again in a few minutes.');
+    else setMessage('game-status', 'Disconnected. Reload to rejoin; the game waits for you.');
+  };
 }
 
 async function createOnline(kids: KidName[]) {
   const res = await fetch('/api/games', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kids, romCrc }) });
   if (!res.ok) {
-    setMessage('lobby-error', 'Could not create a game on this server.');
+    const err = (await res.json().catch(() => null)) as { error?: string } | null;
+    setMessage('lobby-error', res.status === 400 || !err?.error ? 'Could not create a game on this server.' : err.error);
     return;
   }
   const { seats } = (await res.json()) as CreateGameResponse;
-  const link = (t: string) => `${location.origin}${location.pathname}#t=${t}`;
-  $('invite').hidden = false;
-  $<HTMLInputElement>('link-1').value = link(seats[0].token);
-  $<HTMLInputElement>('link-2').value = link(seats[1].token);
-  $('play-1').onclick = () => {
-    location.hash = `t=${seats[0].token}`;
-    startOnline(seats[0].token);
-  };
+  // Your game's page: both links, and Play.
+  location.hash = `t=${seats[0].token}`;
 }
 
-async function main() {
-  await initRom();
-  const token = new URLSearchParams(location.hash.slice(1)).get('t');
-  if (token) return startOnline(token);
-  show('lobby');
+/** The front page: what's going on, your ROM, a new game, and the high-score board. */
+async function home() {
+  show('home');
+  const activity = async () => {
+    const s = (await (await fetch('/api/stats')).json().catch(() => null)) as Stats | null;
+    if (!s) return;
+    const games = s.playing === 1 ? '1 game' : `${s.playing} games`;
+    const players = s.players === 1 ? '1 player' : `${s.players} players`;
+    setMessage('activity', `Right now: ${games} being played, ${players} online.`);
+  };
+  const board = async () => {
+    const rows = (await (await fetch('/api/scores')).json().catch(() => [])) as ScoreRow[];
+    renderBoard($('board'), rows, rom);
+  };
+  activity();
+  setInterval(activity, 30_000);
+  const have = await loadRomQuietly();
+  board();
+  if (!have) {
+    await askForRom($('home'), $('lobby'));
+    board();
+  }
+  $('lobby').hidden = false;
+  $('forget-rom').hidden = false;
   const kids = () => [$<HTMLSelectElement>('kid-1').value, $<HTMLSelectElement>('kid-2').value] as KidName[];
   const valid = () => {
     const [a, b] = kids();
@@ -390,8 +450,77 @@ async function main() {
     await forgetRom();
     location.reload();
   };
-  for (const id of ['copy-1', 'copy-2'])
-    $(id).onclick = () => navigator.clipboard?.writeText($<HTMLInputElement>(id.replace('copy', 'link')).value);
+}
+
+/** A game's own page: who's in it, both links for its creator, initials, the score, and Play. */
+async function gamePage(token: string) {
+  show('gamepage');
+  const res = await fetch(`/api/seat?token=${encodeURIComponent(token)}`).catch(() => null);
+  if (!res?.ok) {
+    setMessage('gp-error', "This link isn't a seat in any game on this server.");
+    $('gp-play').hidden = true;
+    return;
+  }
+  const info = (await res.json()) as SeatInfo;
+  const [k1, k2] = info.game.kids.map(cap);
+  const other = 3 - info.player;
+  $('gp-title').textContent = `${k1} and ${k2}`;
+  setMessage('gp-who', `You play ${cap(info.game.kids[info.player - 1])}. ${cap(info.game.kids[other - 1])} is ${info.online.includes(other) ? 'playing now' : 'away'}.`);
+  $<HTMLInputElement>('gp-link').value = seatLink(token);
+  copyButton('gp-copy-link', 'gp-link');
+  if (info.invite) {
+    $('gp-invite-row').hidden = false;
+    $<HTMLInputElement>('gp-invite').value = seatLink(info.invite);
+    copyButton('gp-copy-invite', 'gp-invite');
+  }
+  const summary = (await (await fetch(`/api/games/${info.game.id}/summary`)).json().catch(() => null)) as GameSummary | null;
+  if (summary) {
+    $<HTMLInputElement>('gp-initials').value = summary.initials[info.player - 1] ?? '';
+    $('gp-score').innerHTML = '';
+    $('gp-score').append(`Score so far: ${summary.points} of ${MAX_POINTS}. `);
+    const a = document.createElement('a');
+    a.href = `#g=${info.game.id}`;
+    a.textContent = 'See it on the board';
+    if (summary.points > 0) $('gp-score').append(a);
+  }
+  $('gp-save-initials').onclick = async () => {
+    const r = await fetch(`/api/initials?token=${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify({ initials: $<HTMLInputElement>('gp-initials').value }) });
+    const body = (await r.json().catch(() => null)) as { initials?: string } | null;
+    if (r.ok && body?.initials) $<HTMLInputElement>('gp-initials').value = body.initials;
+    setMessage('gp-initials-msg', r.ok ? 'Saved.' : 'One to three letters.');
+  };
+  $('gp-play').onclick = async () => {
+    if (!(await loadRomQuietly())) await askForRom($('gp-rom'));
+    location.hash = `t=${token}&play`;
+  };
+}
+
+/** One game on the board. */
+async function summaryPage(id: string) {
+  show('summary');
+  const res = await fetch(`/api/games/${encodeURIComponent(id)}/summary`).catch(() => null);
+  if (!res?.ok) {
+    $('summary').textContent = 'No such game on this server.';
+    return;
+  }
+  await loadRomQuietly();
+  renderSummary($('summary'), (await res.json()) as GameSummary, rom);
+}
+
+async function main() {
+  // Each view has its own address; moving between them loads the page afresh.
+  window.addEventListener('hashchange', () => location.reload());
+  const h = new URLSearchParams(location.hash.slice(1));
+  const token = h.get('t');
+  const game = h.get('g');
+  if (token && h.has('play')) {
+    if (await loadRomQuietly()) return startOnline(token);
+    location.hash = `t=${token}`;
+    return;
+  }
+  if (token) return gamePage(token);
+  if (game) return summaryPage(game);
+  return home();
 }
 
 main();
