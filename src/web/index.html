@@ -14,6 +14,8 @@
         --line: #333;
         /* The status line under the game screen. */
         --status-h: 28px;
+        /* Room kept on each side of the game for the touch buttons, held sideways. */
+        --touch-w: 104px;
       }
       * {
         box-sizing: border-box;
@@ -56,6 +58,8 @@
       }
       button {
         cursor: pointer;
+        /* No double-tap zoom on phones. */
+        touch-action: manipulation;
       }
       button.primary {
         background: var(--accent);
@@ -79,10 +83,10 @@
         padding: 32px;
         text-align: center;
       }
+      /* A link's box takes its own line when the row is too narrow for it (phones). */
       #gamepage input[readonly] {
-        width: 100%;
         min-width: 0;
-        flex: 1;
+        flex: 1 1 14em;
       }
       h2 {
         font-size: 17px;
@@ -204,6 +208,7 @@
       body.playing #game {
         flex: 1;
         min-height: 0;
+        margin-top: 0;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -232,6 +237,49 @@
         white-space: nowrap;
         text-overflow: ellipsis;
       }
+      /* Touch screens: buttons for what the keyboard does, under the game (beside it, held sideways). */
+      #touch {
+        display: none;
+        gap: 10px;
+        justify-content: center;
+        padding: 8px 16px 12px;
+      }
+      body.touch #touch {
+        display: flex;
+      }
+      #touch button {
+        min-width: 84px;
+        min-height: 48px;
+      }
+      @media (orientation: portrait) {
+        body.touch #game-status {
+          white-space: normal;
+          height: auto;
+          line-height: 1.4;
+          padding: 6px 16px;
+        }
+      }
+      @media (orientation: landscape) {
+        body.touch #touch {
+          position: fixed;
+          right: 8px;
+          top: 50%;
+          transform: translateY(-50%);
+          flex-direction: column;
+          padding: 0;
+        }
+        body.touch #screen {
+          width: min(100vw - 2 * var(--touch-w), calc((100vh - var(--status-h)) * 4 / 3));
+          width: min(100vw - 2 * var(--touch-w), calc((100dvh - var(--status-h)) * 4 / 3));
+        }
+      }
+      footer {
+        margin-top: 24px;
+        text-align: center;
+      }
+      body.playing footer {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -244,7 +292,8 @@
         <div id="rom" hidden>
           <div id="rom-drop">
             <p>To play, you need your own <strong>Maniac Mansion (USA)</strong> NES ROM, and so does your partner. Drop it here, or</p>
-            <input id="rom-file" type="file" accept=".nes,.bin" />
+            <!-- No accept filter: iPhones grey out files whose type they don't know, like .nes. -->
+            <input id="rom-file" type="file" />
             <p class="lede">It stays in this browser. Nothing from it is uploaded.</p>
           </div>
           <p id="rom-error" class="error"></p>
@@ -268,7 +317,7 @@
       <section id="gamepage" hidden>
         <h2 id="gp-title"></h2>
         <p id="gp-who" class="lede"></p>
-        <div id="gp-invite-row" class="row" hidden><span>Send to player 2</span><input id="gp-invite" readonly /><button id="gp-copy-invite">Copy</button></div>
+        <div id="gp-invite-row" class="row" hidden><span>Send to player 2</span><input id="gp-invite" readonly /><button id="gp-copy-invite">Copy</button><button id="gp-share-invite" hidden>Share</button></div>
         <div class="row"><span>Your link</span><input id="gp-link" readonly /><button id="gp-copy-link">Copy</button></div>
         <p class="lede">Each link is a seat: keep yours to come back. The mansion only moves while someone is playing.</p>
         <div class="row">
@@ -288,7 +337,13 @@
         <button id="back" title="Back to this game's page">&lsaquo; Game</button>
         <canvas id="screen" width="256" height="308"></canvas>
         <p id="game-status"></p>
+        <div id="touch">
+          <button id="touch-items">Items</button>
+          <button id="touch-skip">Skip</button>
+          <button id="touch-sound">Mute</button>
+        </div>
       </section>
+      <footer class="lede small">Free software under the GPL: <a href="https://github.com/dustindoan/maniac-duo">source code</a>. <em>Maniac Mansion</em> is © Lucasfilm Games; bring your own copy.</footer>
     </main>
     <script type="module" src="./main.js"></script>
   </body>
