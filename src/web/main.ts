@@ -34,6 +34,11 @@ function setMessage(id: string, text: string) {
   $(id).textContent = text;
 }
 
+// Touch screens get buttons for what the keyboard does (Items, Skip, Mute) and their own hints.
+const touch = () => document.body.classList.contains('touch');
+if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
+window.addEventListener('pointerdown', (ev) => ev.pointerType === 'touch' && document.body.classList.add('touch'));
+
 // ------------------------------------------------------------------ ROM
 
 async function acceptRom(bytes: Uint8Array): Promise<boolean> {
@@ -257,14 +262,19 @@ class GameView {
     return this.controls.local.find((p) => e.ctxs[p].cutscene) ?? this.controls.local[0];
   }
 
+  private toggleMute() {
+    this.audio.toggleMute();
+    if (this.audio.muted) this.voices.silence();
+    $('touch-sound').textContent = this.audio.muted ? 'Unmute' : 'Mute';
+  }
+
   private bindInput(canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (ev) => {
       if (document.activeElement?.tagName === 'INPUT') return;
       this.keys.add(ev.code);
       this.audio.unlock();
       if (ev.code === 'KeyM') {
-        if (!ev.repeat) this.audio.toggleMute();
-        if (this.audio.muted) this.voices.silence();
+        if (!ev.repeat) this.toggleMute();
         return;
       }
       if (ev.code === 'KeyV') {
@@ -302,11 +312,27 @@ class GameView {
       const ui = this.uis.find(({ view: v }) => v && !v.shared && y >= v.area.y && y < v.area.y + v.area.h);
       return { p: ui?.player ?? 0, x, y };
     };
+    // The touch buttons act for whoever touched the screen last (on one screen, either player).
+    let last = this.controls.local[0];
     canvas.addEventListener('pointerdown', (ev) => {
       this.audio.unlock();
       const { p, x, y } = locate(ev);
-      if (p && this.isLocal(p)) this.uis[p - 1].click(x, y);
+      if (p && this.isLocal(p)) {
+        last = p;
+        this.uis[p - 1].click(x, y);
+      }
     });
+    // iPhones only let sound start when a touch ends.
+    canvas.addEventListener('pointerup', () => this.audio.unlock());
+    const button = (id: string, act: () => void) =>
+      ($(id).onclick = () => {
+        this.audio.unlock();
+        act();
+      });
+    button('touch-items', () => this.uis[last - 1].press('items'));
+    button('touch-skip', () => this.uis[this.skipper() - 1].press('skip'));
+    button('touch-sound', () => this.toggleMute());
+    $('touch-sound').textContent = this.audio.muted ? 'Unmute' : 'Mute';
     canvas.addEventListener('pointermove', (ev) => {
       const { p, x, y } = locate(ev);
       for (const ui of this.uis) if (ui.player !== p) ui.hover = '';
@@ -327,7 +353,12 @@ function startLocal(kids: KidName[]) {
   $('back').onclick = () => confirm("Leave this game? A game on one screen isn't saved.") && location.reload();
   const queue: Command[] = [];
   const view = new GameView(kids, (Math.random() * 2 ** 31) | 1, RULES, { local: [1, 2], send: (c) => queue.push(c) });
-  setMessage('game-status', 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes, V voices.');
+  setMessage(
+    'game-status',
+    touch()
+      ? 'Two players, one screen: each taps in their own half.'
+      : 'Two players, one screen. P1: WASD, F act, G next verb, C items. P2: arrows, L act, K next verb, O items. Esc skips cutscenes, M mutes, V voices.',
+  );
   // Keep to the real clock: timers fire late or early, and sound should neither lag nor stutter.
   const start = performance.now();
   let t = 0;
@@ -380,7 +411,13 @@ function startOnline(token: string) {
           // Scores go to the board only once caught up, so a replay doesn't report every step again.
           view!.onScore = (reached) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'score', reached }));
           view!.reportScore();
-          setMessage('game-status', `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}. Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip, M mute, V voices. Gamepads work too.`);
+          const you = `You are ${view!.ls.session.engine.nameOf(view!.ls.session.engine.egoOf(me))}.`;
+          setMessage(
+            'game-status',
+            touch()
+              ? `${you} Tap to walk; tap people and things to use them.`
+              : `${you} Arrows/WASD walk, Z/Space act, X next verb, C items, Esc skip, M mute, V voices. Gamepads work too.`,
+          );
         }
       };
       chunk();
@@ -472,6 +509,11 @@ async function gamePage(token: string) {
     $('gp-invite-row').hidden = false;
     $<HTMLInputElement>('gp-invite').value = seatLink(info.invite);
     copyButton('gp-copy-invite', 'gp-invite');
+    // Phones can hand the invite straight to Messages and the like.
+    if (navigator.share) {
+      $('gp-share-invite').hidden = false;
+      $('gp-share-invite').onclick = () => navigator.share({ title: 'Maniac Duo', text: `Play Maniac Mansion with me, as ${cap(info.game.kids[other - 1])}:`, url: seatLink(info.invite!) }).catch(() => {});
+    }
   }
   const summary = (await (await fetch(`/api/games/${info.game.id}/summary`)).json().catch(() => null)) as GameSummary | null;
   if (summary) {

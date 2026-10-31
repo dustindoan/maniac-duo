@@ -126,7 +126,8 @@ survive a redeploy. Each player still loads their own ROM in their own browser.
 
 Nothing is chosen until you press B, which steps through what's nearby ("Pull door mat…"; the
 ellipsis means B has more) and back to nothing. The status line under your half says what A will
-do. Mouse and touch work too: click the floor to walk, click a thing for its verbs.
+do. Mouse and touch work too: click the floor to walk, click a thing for its verbs. On a touch
+screen, buttons under the game (beside it, held sideways) open Items, skip cutscenes and mute.
 
 ## Test it
 
