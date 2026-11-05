@@ -247,12 +247,14 @@ export class ViewRenderer {
 
   /**
    * First room row a split-screen half shows: as far down as the kid's feet need. A half shows all
-   * but ten of the room's rows, which are almost always ceiling or sky.
+   * but ten of the room's rows, which are almost always ceiling or sky. A keypad shows its bottom,
+   * so the status line goes over the empty rows below its last row of buttons.
    */
   private cropFor(s: Session, p: number): number {
     const e = s.engine;
     const kid = e.actors[e.egoOf(p)];
     const spare = SCENE_H - HALF_H;
+    if (e.atKeypad(p)) return spare;
     if (kid.room !== s.viewRoom(p)) return spare >> 1;
     return Math.max(0, Math.min(spare, kid.y * 2 + LINE - HALF_H));
   }

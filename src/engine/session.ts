@@ -29,7 +29,9 @@ export type Command =
   | { type: 'walk'; player: number; x: number; y: number }
   | { type: 'stop'; player: number }
   | { type: 'sentence'; player: number; verb: number; a: number; b?: number }
-  | { type: 'skip'; player: number };
+  | { type: 'skip'; player: number }
+  /** Leave a keypad without entering a code. */
+  | { type: 'leave'; player: number };
 
 /**
  * The "Meanwhile..." card before a scene everyone watches (after Day of the Tentacle): the split
@@ -193,6 +195,8 @@ export class Session {
         if (card) this.meanwhile = 0;
         return ctx !== undefined || card;
       }
+      case 'leave':
+        return e.leaveKeypad(cmd.player);
     }
   }
 
