@@ -117,6 +117,33 @@ export function suggestions(e: Engine, p: number, inHand: number | null, max = 4
   return lists.flat();
 }
 
+/**
+ * A keypad's buttons, in reading order. The keypad room is one screen wide; it has a second set of
+ * buttons too, past its right edge, that never shows.
+ */
+export function keypadButtons(e: Engine, p: number): Target[] {
+  const w = (e.loadedRoom(e.ctxs[p].room)?.room.width ?? 0) * 8;
+  return touchable(e, e.ctxs[p].room)
+    .filter((t) => t.x + t.w <= w && affordances(e, p, t.id).length)
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/** The button a D-pad press reaches from `from`: the nearest that way, keeping to its row or column. */
+export function buttonTowards(buttons: Target[], from: Target, dx: number, dy: number): Target | null {
+  const mid = (t: Target) => ({ x: t.x + t.w / 2, y: t.y + t.h / 2 });
+  const f = mid(from);
+  let best: Target | null = null;
+  let score = Infinity;
+  for (const t of buttons) {
+    const m = mid(t);
+    const along = (m.x - f.x) * dx + (m.y - f.y) * dy;
+    if (along <= 0) continue;
+    const s = along + 2 * Math.abs(dx ? m.y - f.y : m.x - f.x);
+    if (s < score) [best, score] = [t, s];
+  }
+  return best;
+}
+
 /** Where to walk for a held D-pad direction, in room pixels. */
 export function dpadTarget(e: Engine, p: number, dx: number, dy: number): { x: number; y: number } | null {
   const a = e.actors[e.egoOf(p)];

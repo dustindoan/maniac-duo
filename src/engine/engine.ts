@@ -67,6 +67,15 @@ export const PLAYER_SCOPED = new Set([2, 3, 4, 5, 7]);
  */
 export const WORLD_SCRIPTS = new Set([12, 36, 38, 39, 40, 47, 48, 87, 91, 98, 111, 136, 152]);
 
+/**
+ * Keypads: script 44 shows the keypad (room 43) and waits for four digits, then whatever opened it
+ * judges them: a door (46), a safe (45), the phones (30, 41), and the lab's inner door (167), where
+ * a wrong code sets off the house. From KEYPAD_DONE, script 44 puts the cursor and camera back.
+ */
+const KEYPAD = 44;
+const KEYPAD_CALLERS = new Set([30, 41, 45, 46, 167]);
+export const KEYPAD_DONE = 0x60;
+
 /** Variables that belong to a context (ScummVM v2 VAR_* numbering plus MM's sentence scratch vars). */
 export const CTX_VARS = [0, 2, 3, 4, 5, 7, 8, 9, 10, 12, 18, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 203, 204, 217];
 
@@ -1334,6 +1343,28 @@ export class Engine {
     if (!c.userPut || c.cutscene || sys.cutscene || !sys.userPut || c.room === 0 || this.cutAway()) return false;
     // Cursor state 3 is a full-screen interface (keypads, phone): the kid isn't in that "room".
     return this.actors[this.egoOf(p)].room === c.room || this.ctxVar(p, V.CURSORSTATE) === 3;
+  }
+
+  /** Is this player at a keypad, on screen and waiting for a code? */
+  atKeypad(p: number): boolean {
+    return this.ctxVar(p, V.CURSORSTATE) === 3 && this.slots.some((s) => s.number === KEYPAD && s.kind === 'G' && s.running && s.ctx === p);
+  }
+
+  /**
+   * Leave a keypad without entering a code, which the original doesn't allow. Whatever opened it
+   * stops before it can judge a code, and the keypad script goes on to its own ending: the cursor
+   * and the camera come back to the kid, as after the fourth digit.
+   */
+  leaveKeypad(p: number): boolean {
+    const pad = this.slots.find((s) => s.number === KEYPAD && s.kind === 'G' && s.running && s.ctx === p);
+    if (!pad || !this.atKeypad(p)) return false;
+    for (let i = 0; i < NUM_SLOTS; i++) {
+      const s = this.slots[i];
+      if (s.kind === 'G' && KEYPAD_CALLERS.has(s.number) && s.ctx === p && (s.running || s.paused)) this.killSlot(i);
+    }
+    pad.pc = KEYPAD_DONE;
+    pad.delay = 0;
+    return true;
   }
 
   /** Walk to a point in pixel coordinates of the player's room. */

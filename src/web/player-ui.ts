@@ -1,13 +1,13 @@
 // One player's interface: D-pad walking, focus + A/B verbs (A with nothing chosen opens the items),
-// inventory overlay, item-in-hand, with mouse/touch as a fallback. Produces engine commands; never
-// touches engine state.
+// inventory overlay, item-in-hand, keypads (the D-pad moves between buttons, A pushes, B leaves),
+// with mouse/touch as a fallback. Produces engine commands; never touches engine state.
 
 import type { Engine } from '../engine/engine';
 import type { Command, Session } from '../engine/session';
 import { type Rect, type View, Font, GREY, WHITE, YELLOW, toRoom } from '../gfx/view';
-import type { Surface } from '../gfx/nes';
+import { NES_BLACK, type Surface } from '../gfx/nes';
 import { type Affordance, VERB, VERB_LABELS, affordances, pairSentence, takesGifts } from '../verbs/affordances';
-import { type Suggestion, type Target, dpadTarget, suggestions, touchable } from '../verbs/focus';
+import { type Suggestion, type Target, buttonTowards, dpadTarget, keypadButtons, suggestions, touchable } from '../verbs/focus';
 
 export type Button = 'a' | 'b' | 'items' | 'skip';
 
@@ -64,10 +64,11 @@ export class PlayerUI {
       this.lastPad = { dx: 0, dy: 0 };
       return;
     }
-    if (this.inventoryOpen || this.menu) {
+    if (this.inventoryOpen || this.menu || this.atKeypad()) {
       // Opening an overlay mid-walk stops the kid; the D-pad now moves the overlay's cursor.
       if (this.lastPad.dx || this.lastPad.dy) this.send({ type: 'stop', player: this.player });
       this.lastPad = { dx: 0, dy: 0 };
+      if (this.atKeypad()) this.pointAtButtons();
       return;
     }
     const changed = pad.dx !== this.lastPad.dx || pad.dy !== this.lastPad.dy;
@@ -98,19 +99,39 @@ export class PlayerUI {
     this.menu = null;
   }
 
+  /** At a keypad, waiting for a code: the kid isn't on screen, its buttons are. */
+  atKeypad(): boolean {
+    return this.e.canAct(this.player) && this.e.atKeypad(this.player);
+  }
+
+  /** At a keypad every button on screen is an option, and one is always chosen (the first, to start). */
+  private pointAtButtons() {
+    this.options = keypadButtons(this.e, this.player).map((target) => ({ target, verb: VERB.use, label: 'Push' }));
+    const keep = this.options.findIndex((o) => `${o.target.id}/${o.verb}` === this.lastOption);
+    this.chooseOption(Math.max(0, keep));
+  }
+
+  private chooseOption(index: number) {
+    this.optionIndex = this.options[index] ? index : -1;
+    const cur = this.options[this.optionIndex];
+    this.lastOption = cur ? `${cur.target.id}/${cur.verb}` : '';
+  }
+
   get focus(): Target | null {
     return this.options[this.optionIndex]?.target ?? null;
   }
 
   press(b: Button) {
     const e = this.e;
+    // Skip leaves a keypad, as B does: there's no cutscene to skip there.
     if (b === 'skip') {
-      this.send({ type: 'skip', player: this.player });
+      this.send({ type: this.atKeypad() ? 'leave' : 'skip', player: this.player });
       return;
     }
     if (!e.canAct(this.player)) return;
     if (this.menu) return this.menuPress(b);
     if (this.inventoryOpen) return this.inventoryPress(b);
+    if (this.atKeypad()) return this.keypadPress(b);
     if (b === 'items') {
       this.inventoryOpen = true;
       this.invIndex = Math.min(this.invIndex, Math.max(0, this.items().length - 1));
@@ -140,6 +161,13 @@ export class PlayerUI {
       return;
     }
     this.sentence(o.verb, o.target.id);
+  }
+
+  /** At a keypad: A pushes the chosen button, B leaves without a code (Items does nothing). */
+  private keypadPress(b: Button) {
+    const o = this.options[this.optionIndex];
+    if (b === 'a' && o) this.sentence(o.verb, o.target.id);
+    else if (b === 'b') this.send({ type: 'leave', player: this.player });
   }
 
   /** Inventory overlay: D-pad moves the cursor (handled in navigate), A opens the item's verbs. */
@@ -204,11 +232,16 @@ export class PlayerUI {
     } else if (this.inventoryOpen) {
       const n = this.items().length;
       if (n) this.invIndex = Math.max(0, Math.min(n - 1, this.invIndex + dy + dx * INV_ROWS));
+    } else if (this.atKeypad()) {
+      const cur = this.options[this.optionIndex];
+      const next = cur && buttonTowards(this.options.map((o) => o.target), cur.target, dx, dy);
+      if (next) this.chooseOption(this.options.findIndex((o) => o.target === next));
     }
   }
 
+  /** The D-pad moves a cursor (inventory, verb menu, keypad) rather than the kid. */
   get overlayOpen() {
-    return this.inventoryOpen || !!this.menu;
+    return this.inventoryOpen || !!this.menu || this.atKeypad();
   }
 
   private sentence(verb: number, a: number, b = 0) {
@@ -237,6 +270,15 @@ export class PlayerUI {
       return;
     }
     const hit = this.hitTest(x, y);
+    if (this.atKeypad()) {
+      // A button is pushed at once. Between the buttons nothing happens: the kid isn't here to walk.
+      const i = this.options.findIndex((o) => o.target.id === hit);
+      if (i >= 0) {
+        this.chooseOption(i);
+        this.keypadPress('a');
+      }
+      return;
+    }
     if (hit) {
       if (this.inHand && takesGifts(e, hit)) {
         const s = pairSentence(e, this.inHand.item, hit);
@@ -277,6 +319,7 @@ export class PlayerUI {
     const e = this.e;
     const name = e.nameOf(this.kid());
     if (!e.canAct(this.player)) return name;
+    if (this.atKeypad()) return 'A pushes   B leaves';
     if (this.inHand && !this.options.length) return `${VERB_LABELS[this.inHand.verb]} ${e.nameOf(this.inHand.item)}... B drops`;
     if (this.hover) return this.hover;
     // '^' is the NES font's ellipsis: B has suggestions to step through.
@@ -292,13 +335,15 @@ export class PlayerUI {
     const v = this.view;
     if (!v || v.shared) return;
     const sc = v.scene;
-    if (this.focus && !this.overlayOpen && this.e.canAct(this.player)) {
+    if (this.focus && !this.inventoryOpen && !this.menu && this.e.canAct(this.player)) {
       const f = this.focus;
       const x0 = sc.x + f.x - v.scrollX;
       const y0 = sc.y + Math.max(0, f.y - v.scrollY);
       const x1 = x0 + f.w - 1;
       const y1 = Math.min(sc.y + sc.h - 1, sc.y + f.y + f.h - 1 - v.scrollY);
-      bracket(dst, x0, y0, x1, y1, this.inHand ? YELLOW : WHITE, sc.x, sc.x + sc.w, sc.y, sc.y + sc.h);
+      // On a keypad's pale face, a black bracket just outside the button.
+      if (this.atKeypad()) bracket(dst, x0 - 1, y0 - 1, x1 + 1, y1 + 1, NES_BLACK, sc.x, sc.x + sc.w, sc.y, sc.y + sc.h);
+      else bracket(dst, x0, y0, x1, y1, this.inHand ? YELLOW : WHITE, sc.x, sc.x + sc.w, sc.y, sc.y + sc.h);
     }
     if (this.inventoryOpen) {
       const box = this.inventoryBox();

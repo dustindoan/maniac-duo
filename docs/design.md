@@ -225,7 +225,7 @@ Direct control (`src/verbs/focus.ts`, `src/web/player-ui.ts`):
   pickups first), each with its verbs. Nothing is chosen at first: **B** steps through them, all
   of one thing's verbs before the next thing's, and back to nothing. The status line shows the chosen one, and the thing is
   outlined; walking clears the choice.
-- **A** does what the status line says (nothing, if nothing is chosen). With an item in hand,
+- **A** does what the status line says; with nothing chosen and nothing in hand, it opens Items. With an item in hand,
   the suggestions are the things to use it with; B drops the item only when there's nothing
   nearby to use it with (the status line then says "B drops").
 - **Items** opens the overlay over your half. Choosing Use or Give puts the item in hand, and the
@@ -233,6 +233,14 @@ Direct control (`src/verbs/focus.ts`, `src/web/player-ui.ts`):
   choosing another item completes "Use batteries with flashlight"; choosing the one in hand puts
   it back.
 - Mouse and touch: click the floor to walk, click a thing for its verbs.
+- **Keypads** (the phones dial on the same one): the kid isn't on that screen, so the D-pad moves
+  an outline between its buttons, A pushes the outlined one, and B (or Skip) leaves without a
+  code. The original has no way out, and a wrong code at the lab's inner door (script 167) sets off
+  the house. Leaving is one new command, `leave`: the engine stops whatever opened the keypad
+  before it can judge a code, and the keypad script (44) runs its own ending, so the cursor and
+  camera come back as after a code (`Engine.leaveKeypad`). No game's log has the command before it
+  existed, so games already started replay the same. In a split-screen half, a keypad shows its
+  bottom rows, which keeps its last row of buttons clear of the status line.
 - **Go to a person** walks your kid up beside them. The game's scripts do nothing with that
   sentence, so the engine handles it (`Engine.sentence`).
 

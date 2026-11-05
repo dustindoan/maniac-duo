@@ -107,6 +107,8 @@ export function parseCommand(raw: unknown, player: number): Command | null {
       return { type: 'stop', player };
     case 'skip':
       return { type: 'skip', player };
+    case 'leave':
+      return { type: 'leave', player };
   }
   return null;
 }
